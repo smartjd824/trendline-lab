@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trendline.quantlab.daily10am</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/jong0824/Library/CloudStorage/GoogleDrive-jong0824@cberi.go.kr/공유 드라이브/덕이님의 드라이브/안티그래비티/주식</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-s</string>
+    <string>/Users/jong0824/.local/bin/uv</string>
+    <string>run</string>
+    <string>python</string>
+    <string>run_alert_check.py</string>
+    <string>--always-notify</string>
+    <string>--auto-sleep</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/jong0824/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>10</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/jong0824/Library/CloudStorage/GoogleDrive-jong0824@cberi.go.kr/공유 드라이브/덕이님의 드라이브/안티그래비티/주식/data/logs/daily_alert.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/jong0824/Library/CloudStorage/GoogleDrive-jong0824@cberi.go.kr/공유 드라이브/덕이님의 드라이브/안티그래비티/주식/data/logs/daily_alert.log</string>
+</dict>
+</plist>

@@ -1,0 +1,17 @@
+[project]
+name = "trendline-research-lab"
+version = "0.1.0"
+description = "MA20/MA200 + Multi-Trendline 30-Asset Strategy Research & Signal Alert Service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pandas>=2.2.0",
+    "numpy>=2.0.0",
+    "yfinance>=0.2.50",
+    "httpx>=0.27.0",
+    "pydantic>=2.9.0",
+]
+
+[tool.uv]
+package = false

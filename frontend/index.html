@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrendLine Quant Lab · MA20·MA200 150종목 연구 & 신호 알림</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div>
+        <div class="brand-title">TrendLine Quant Lab</div>
+        <div class="brand-sub">MA20 · MA200(위 &amp; 평평/상승) + 추세선 150종목(코스피50·코스닥50·미국30·코인20)</div>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab-btn active" data-tab="chart">📈 차트 연구실</button>
+      <button class="tab-btn" data-tab="research">🧪 150종목 2·4·6년 비교</button>
+      <button class="tab-btn" data-tab="scanner">🔔 신호 스캐너 & 알림</button>
+    </nav>
+
+    <div class="topbar-actions">
+      <span id="cacheStatusBadge" class="status-pill">데이터 확인 중...</span>
+      <button id="syncBtn" class="btn btn-primary">↻ 150종목 시세 최신화</button>
+    </div>
+  </header>
+
+  <main class="main-shell">
+    <!-- ==================== TAB 1: CHART LAB ==================== -->
+    <section id="tab-chart" class="tab-pane active">
+      <div class="chart-workspace">
+        <aside class="asset-sidebar">
+          <div class="sidebar-header">
+            <input id="assetSearch" type="text" class="input-sm" placeholder="종목명/티커 검색..." />
+            <div class="market-pills" id="chartMarketPills">
+              <button class="pill active" data-market="ALL">전체 150</button>
+              <button class="pill" data-market="KOSPI">코스피 50</button>
+              <button class="pill" data-market="KOSDAQ">코스닥 50</button>
+              <button class="pill" data-market="US">미국 30</button>
+              <button class="pill" data-market="CRYPTO">코인 20</button>
+            </div>
+          </div>
+          <div id="assetList" class="asset-list"></div>
+        </aside>
+
+        <div class="chart-main">
+          <div class="chart-toolbar">
+            <div class="toolbar-row">
+              <div class="asset-heading">
+                <span id="chartAssetName" class="asset-title">삼성전자</span>
+                <span id="chartAssetMeta" class="asset-meta">005930.KS · KR · 일봉</span>
+              </div>
+              <div class="toolbar-controls">
+                <label class="ctrl-group">
+                  <span>전략</span>
+                  <select id="chartStrategySelect" class="select-sm"></select>
+                </label>
+                <label class="ctrl-group">
+                  <span>청산</span>
+                  <select id="chartExitSelect" class="select-sm"></select>
+                </label>
+                <div class="seg-group" id="chartPeriodGroup">
+                  <button class="seg-btn" data-years="2">2년</button>
+                  <button class="seg-btn" data-years="4">4년</button>
+                  <button class="seg-btn active" data-years="6">6년</button>
+                </div>
+                <label class="ctrl-group">
+                  <span>단기</span>
+                  <input id="shortWinInput" type="number" min="15" max="120" value="45" class="num-sm" />
+                </label>
+                <label class="ctrl-group">
+                  <span>장기</span>
+                  <input id="longWinInput" type="number" min="60" max="360" value="180" class="num-sm" />
+                </label>
+                <select id="priceSourceSelect" class="select-sm">
+                  <option value="wick">꼬리(고·저가)</option>
+                  <option value="body">몸통(종가)</option>
+                </select>
+                <select id="scaleModeSelect" class="select-sm">
+                  <option value="linear">선형 스케일</option>
+                  <option value="log">로그 스케일</option>
+                </select>
+                <button id="applyChartParamsBtn" class="btn btn-secondary btn-sm">적용</button>
+              </div>
+            </div>
+
+            <div class="toolbar-row legend-row">
+              <div id="ohlcLegend" class="ohlc-legend">차트에 마우스를 올리면 시/고/저/종 및 MA20·MA200 수치가 표시됩니다.</div>
+              <div class="line-toggles">
+                <label class="toggle-chip"><input type="checkbox" id="togMA20" checked /><span class="swatch" style="background:#2962ff"></span>MA20</label>
+                <label class="toggle-chip"><input type="checkbox" id="togMA200" checked /><span class="swatch" style="background:#00897b"></span>MA200</label>
+                <label class="toggle-chip"><input type="checkbox" id="togLongUpper" checked /><span class="swatch" style="background:#2979ff"></span>장기 상단</label>
+                <label class="toggle-chip"><input type="checkbox" id="togLongLower" checked /><span class="swatch" style="background:#00e676"></span>장기 하단</label>
+                <label class="toggle-chip"><input type="checkbox" id="togShortUpper" checked /><span class="swatch" style="background:#ff9800"></span>단기 상단</label>
+                <label class="toggle-chip"><input type="checkbox" id="togShortLower" checked /><span class="swatch" style="background:#ba68c8"></span>단기 하단</label>
+                <label class="toggle-chip"><input type="checkbox" id="togMarkers" checked /><span class="swatch" style="background:#ffd54f"></span>매매타점</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-stage-wrap">
+            <div id="tvChartContainer" class="tv-chart-container"></div>
+            <div id="trendlineInfoBar" class="trendline-info-bar"></div>
+          </div>
+
+          <div class="chart-bottom-grid">
+            <div class="card">
+              <div class="card-title">기간별 성과 변화 (2년 · 4년 · 6년)</div>
+              <div id="singleMultiPeriodGrid" class="mini-kpi-grid"></div>
+              <div class="equity-wrap">
+                <canvas id="singleEquityChart"></canvas>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">
+                <span>전략 매매 내역</span>
+                <span id="tradesCountBadge" class="muted"></span>
+              </div>
+              <div class="table-scroll compact-scroll">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>진입일</th>
+                      <th>청산일</th>
+                      <th class="num">매수가</th>
+                      <th class="num">매도가</th>
+                      <th class="num">수익률</th>
+                      <th>사유</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tradesTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: 30-ASSET RESEARCH ==================== -->
+    <section id="tab-research" class="tab-pane">
+      <div class="research-container">
+        <div class="rec-grid" id="recommendationCards"></div>
+
+        <div class="card toolbar-card">
+          <div class="toolbar-row wrap">
+            <div class="market-pills" id="researchMarketPills">
+              <button class="pill active" data-market="ALL">전체 150종목</button>
+              <button class="pill" data-market="KOSPI">코스피 50</button>
+              <button class="pill" data-market="KOSDAQ">코스닥 50</button>
+              <button class="pill" data-market="US">미국 30</button>
+              <button class="pill" data-market="CRYPTO">코인 20</button>
+            </div>
+            <div class="toolbar-controls">
+              <label class="ctrl-group">
+                <span>적용 청산 규칙</span>
+                <select id="researchExitSelect" class="select-sm"></select>
+              </label>
+              <button id="toggleCustomBuilderBtn" class="btn btn-secondary">🛠️ S6 커스텀 전략 실험실 열기</button>
+              <button id="refreshResearchBtn" class="btn btn-primary">↻ 150종목 연구 다시 계산</button>
+            </div>
+          </div>
+
+          <!-- S6 Custom Strategy Lab -->
+          <div id="customBuilderPanel" class="custom-builder hidden">
+            <div class="custom-grid">
+              <label>추세선 기간
+                <select id="cpHorizon" class="select-sm">
+                  <option value="both">단기 + 장기 모두</option>
+                  <option value="short">단기 상단선만</option>
+                  <option value="long">장기 상단선만</option>
+                </select>
+              </label>
+              <label>MA200 필터
+                <select id="cpMa200" class="select-sm">
+                  <option value="above_flat_up" selected>MA200 위 + 평평/상승</option>
+                  <option value="above_strict_up">MA200 위 + 엄격 상승(&gt;0%)</option>
+                  <option value="above">MA200 위만 (기울기 무관)</option>
+                  <option value="none">제한 없음</option>
+                </select>
+              </label>
+              <label>거래량 배수 (20일 평균 대비)
+                <input id="cpVolMult" type="number" step="0.1" min="0.5" max="4" value="1.2" class="num-sm" />
+              </label>
+              <label>돌파 확인 봉수
+                <select id="cpConfirm" class="select-sm">
+                  <option value="1">1일 종가 돌파</option>
+                  <option value="2">2일 연속 안착</option>
+                </select>
+              </label>
+              <label>매도(청산) 방식
+                <select id="cpExitMode" class="select-sm">
+                  <option value="ma20_2d">MA20 2일 연속 이탈</option>
+                  <option value="ma20_break">MA20 당일 이탈</option>
+                  <option value="lower_and_ma20">하단선 + MA20 동시 이탈</option>
+                  <option value="upper_tp_or_ma20">상단 저항 익절 / MA20 이탈</option>
+                </select>
+              </label>
+              <label>손절 기준 (%)
+                <input id="cpStopLoss" type="number" step="1" min="0" max="30" value="8" class="num-sm" />
+              </label>
+              <label>목표 익절 (%, 0=없음)
+                <input id="cpTakeProfit" type="number" step="5" min="0" max="200" value="0" class="num-sm" />
+              </label>
+              <div class="custom-checks">
+                <label><input type="checkbox" id="cpReqDesc" checked /> 하락 추세선만 돌파</label>
+                <label><input type="checkbox" id="cpMa20" checked /> 종가 &gt; MA20</label>
+                <label><input type="checkbox" id="cpMa20Rising" /> MA20 우상향 필수</label>
+              </div>
+            </div>
+            <div class="custom-actions">
+              <button id="runCustomBtn" class="btn btn-primary">▶ S6 커스텀 전략으로 150종목 2·4·6년 백테스트</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comparison Charts -->
+        <div class="charts-two-col">
+          <div class="card">
+            <div class="card-title">전략별 2년 · 4년 · 6년 평균 수익률 변화 (%)</div>
+            <div class="chart-box"><canvas id="researchReturnChart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title">전략별 2년 · 4년 · 6년 평균 승률 비교 (%)</div>
+            <div class="chart-box"><canvas id="researchWinRateChart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Strategy Summary Table -->
+        <div class="card">
+          <div class="card-title">
+            <span>전략별 종합 성적표 (2년 · 4년 · 6년 비교 · MA200 위 &amp; 평평/상승 필터 적용)</span>
+            <span id="researchScopeLabel" class="muted">전체 30종목 기준</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>전략</th>
+                  <th class="num">2년 승률</th>
+                  <th class="num">2년 수익률</th>
+                  <th class="num">4년 승률</th>
+                  <th class="num">4년 수익률</th>
+                  <th class="num">6년 승률</th>
+                  <th class="num">6년 수익률</th>
+                  <th class="num">6년 단순보유</th>
+                  <th class="num">6년 MDD</th>
+                  <th class="num">손익비</th>
+                  <th class="num">종합점수</th>
+                  <th>알림 적용</th>
+                </tr>
+              </thead>
+              <tbody id="strategySummaryBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Exit Rule Comparison Lab -->
+        <div class="card">
+          <div class="card-title">
+            <span>🚪 청산 규칙 6종 비교 테스트 (진입 고정 → 청산 방식만 바꿔서 승률·수익률·MDD 비교)</span>
+            <div class="toolbar-controls">
+              <label class="ctrl-group">
+                <span>진입 전략</span>
+                <select id="exitTestStrategySelect" class="select-sm"></select>
+              </label>
+              <button id="runExitCompareBtn" class="btn btn-accent btn-sm">▶ 청산 6종 비교 실행</button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>청산 규칙</th>
+                  <th class="num">2년 승률</th>
+                  <th class="num">2년 수익률</th>
+                  <th class="num">4년 승률</th>
+                  <th class="num">4년 수익률</th>
+                  <th class="num">6년 승률</th>
+                  <th class="num">6년 수익률</th>
+                  <th class="num">6년 MDD</th>
+                  <th class="num">손익비(PF)</th>
+                  <th class="num">평균보유일</th>
+                  <th>적용</th>
+                </tr>
+              </thead>
+              <tbody id="exitCompareBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Per-Asset 30-Row Matrix -->
+        <div class="card">
+          <div class="card-title">
+            <span>종목별 2년 · 4년 · 6년 상세 성과 (행 클릭 시 차트 연구실로 이동)</span>
+            <div class="toolbar-controls">
+              <label class="ctrl-group">
+                <span>전략 선택</span>
+                <select id="matrixStrategySelect" class="select-sm"></select>
+              </label>
+              <label class="ctrl-group">
+                <span>정렬</span>
+                <select id="matrixSortSelect" class="select-sm">
+                  <option value="ret6y">6년 수익률 높은순</option>
+                  <option value="wr6y">6년 승률 높은순</option>
+                  <option value="ret2y">2년 수익률 높은순</option>
+                  <option value="mdd6y">6년 MDD 안정순</option>
+                  <option value="market">시장별</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table clickable-rows">
+              <thead>
+                <tr>
+                  <th>종목</th>
+                  <th>시장</th>
+                  <th class="num">2년 승률</th>
+                  <th class="num">2년 수익</th>
+                  <th class="num">4년 승률</th>
+                  <th class="num">4년 수익</th>
+                  <th class="num">6년 승률</th>
+                  <th class="num">6년 수익</th>
+                  <th class="num">6년 B&amp;H</th>
+                  <th class="num">6년 MDD</th>
+                  <th class="num">매매횟수</th>
+                </tr>
+              </thead>
+              <tbody id="assetMatrixBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: SIGNAL SCANNER & ALERTS ==================== -->
+    <section id="tab-scanner" class="tab-pane">
+      <div class="scanner-container">
+        <div id="dailyReportCard" class="card daily-report-card hidden">
+          <div class="card-title">
+            <span id="dailyReportTitle">📋 오늘의 오전 10시 150종목 자동 리포트</span>
+            <span id="dailyReportTime" class="muted"></span>
+          </div>
+          <pre id="dailyReportBody" class="daily-report-pre"></pre>
+        </div>
+        <div class="scanner-kpis" id="scannerKpis"></div>
+
+        <div class="scanner-grid">
+          <div class="card">
+            <div class="card-title">
+              <span>150종목 실시간 추세선 신호 스캐너</span>
+              <div class="toolbar-controls">
+                <select id="scannerStrategySelect" class="select-sm"></select>
+                <select id="scannerExitSelect" class="select-sm"></select>
+                <label class="ctrl-group">
+                  <span>임박 기준(%)</span>
+                  <input id="nearPctInput" type="number" step="0.5" min="0.5" max="15" value="3.0" class="num-sm" />
+                </label>
+                <button id="runScannerBtn" class="btn btn-primary btn-sm">🔍 지금 스캔</button>
+                <button id="sendAlertsNowBtn" class="btn btn-accent btn-sm">🔔 신호 알림 발송</button>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table clickable-rows">
+                <thead>
+                  <tr>
+                    <th>상태</th>
+                    <th>종목</th>
+                    <th>시장</th>
+                    <th class="num">현재가</th>
+                    <th class="num">등락</th>
+                    <th>이평선 위치</th>
+                    <th class="num">단기선 거리</th>
+                    <th class="num">장기선 거리</th>
+                    <th>신호 사유</th>
+                  </tr>
+                </thead>
+                <tbody id="scannerTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card alert-settings-card">
+            <div class="card-title">알림 채널 설정 & 자동 감시</div>
+            <div class="settings-form">
+              <label class="switch-row">
+                <span>macOS 데스크톱 알림 (기본)</span>
+                <input type="checkbox" id="cfgMacos" checked />
+              </label>
+              <label class="switch-row">
+                <span>추세선 돌파 임박 종목도 알림</span>
+                <input type="checkbox" id="cfgNotifyNear" checked />
+              </label>
+
+              <hr class="divider" />
+
+              <label class="switch-row">
+                <span>텔레그램(Telegram) 봇 알림</span>
+                <input type="checkbox" id="cfgTelegram" />
+              </label>
+              <label class="field-col">
+                <span>Bot Token (@BotFather 발급)</span>
+                <input type="password" id="cfgTgToken" class="input-sm" placeholder="123456:ABC-DEF..." />
+              </label>
+              <label class="field-col">
+                <span>Chat ID</span>
+                <input type="text" id="cfgTgChatId" class="input-sm" placeholder="예: 987654321" />
+              </label>
+
+              <hr class="divider" />
+
+              <label class="switch-row">
+                <span>디스코드(Discord) 웹훅 알림</span>
+                <input type="checkbox" id="cfgDiscord" />
+              </label>
+              <label class="field-col">
+                <span>Webhook URL</span>
+                <input type="password" id="cfgDiscordUrl" class="input-sm" placeholder="https://discord.com/api/webhooks/..." />
+              </label>
+
+              <div class="settings-actions">
+                <button id="saveSettingsBtn" class="btn btn-primary">💾 설정 저장</button>
+                <button id="testAlertBtn" class="btn btn-secondary">📣 테스트 알림 보내기</button>
+              </div>
+              <div id="alertFeedback" class="feedback-box"></div>
+
+              <div class="cli-tip">
+                <div class="cli-tip-title">자동 스케줄 감시 명령어 (Mac cron / 터미널)</div>
+                <code>uv run python run_alert_check.py</code>
+                <p>매일 장 마감 후 또는 원하는 주기로 실행하면 30종목 최신화 → 최적 전략 스캔 → 매수/매도/돌파 임박 알림을 자동 전송합니다.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Password Lock Overlay (Static Web Mode) -->
+  <div id="lockOverlay" class="lock-overlay hidden">
+    <div class="lock-card">
+      <div class="lock-icon">🔒</div>
+      <h2>TrendLine Quant Lab</h2>
+      <p class="muted">비공개 연구 대시보드입니다. 비밀번호를 입력해 주세요.</p>
+      <input id="lockPassInput" type="password" class="input-sm lock-input" placeholder="비밀번호 입력..." autocomplete="current-password" />
+      <button id="lockUnlockBtn" class="btn btn-primary" style="width:100%;">잠금 해제</button>
+      <div id="lockError" class="neg" style="min-height:18px;font-size:12px;"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
