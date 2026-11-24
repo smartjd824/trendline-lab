@@ -30,6 +30,9 @@ const state = {
   priceSource: "wick",
   scaleMode: "linear",
   researchMarket: "ALL",
+  top30MarketFilter: "ALL",
+  top30ThemeFilter: "ALL",
+  top30RatingFilter: "ALL",
   matrixThemeFilter: "ALL",
   scannerThemeFilter: "ALL",
   researchData: null,
@@ -182,11 +185,13 @@ async function init() {
     renderAssetList();
 
     if (!IS_STATIC && meta.cache.cached === 0) {
-      showToast("150개 종목 초기 데이터를 불러오는 중입니다...");
+      showToast("250개 종목 초기 데이터를 불러오는 중입니다...");
       await syncMarketData(false);
     }
 
-    await loadChart(state.selectedSymbol);
+    // Load Top 30 leaderboard first since it is the default landing tab
+    await loadScanner();
+    renderTop30Board();
   } catch (err) {
     showToast("초기화 오류: " + err.message, 5000);
   }
@@ -239,7 +244,7 @@ function populateThemeSelects() {
   const html =
     `<option value="ALL">전체 테마 (10대 테마)</option>` +
     state.themes.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
-  ["chartThemeFilter", "matrixThemeFilter", "scannerThemeFilter"].forEach((id) => {
+  ["top30ThemeFilter", "chartThemeFilter", "matrixThemeFilter", "scannerThemeFilter"].forEach((id) => {
     const sel = $(id);
     if (sel) sel.innerHTML = html;
   });
@@ -265,13 +270,24 @@ function bindEvents() {
       btn.classList.add("active");
       $("tab-" + btn.dataset.tab).classList.add("active");
 
-      if (btn.dataset.tab === "research" && !state.researchData) {
+      if (btn.dataset.tab === "top30") {
+        if (!state.scannerData) await loadScanner();
+        renderTop30Board();
+      } else if (btn.dataset.tab === "research" && !state.researchData) {
         await loadResearch(false);
         await loadExitComparison();
       } else if (btn.dataset.tab === "scanner") {
         await loadScanner();
-      } else if (btn.dataset.tab === "chart" && tvChart) {
-        setTimeout(() => tvChart.timeScale().fitContent(), 50);
+      } else if (btn.dataset.tab === "chart") {
+        if (!state.chartPayload) {
+          await loadChart(state.selectedSymbol);
+        } else if (tvChart) {
+          setTimeout(() => {
+            const c = $("tvChartContainer");
+            if (c && c.clientWidth > 0) tvChart.applyOptions({ width: c.clientWidth });
+            tvChart.timeScale().fitContent();
+          }, 50);
+        }
       }
     });
   });
@@ -290,6 +306,22 @@ function bindEvents() {
   $("scannerThemeFilter").addEventListener("change", (e) => {
     state.scannerThemeFilter = e.target.value;
     renderScannerView();
+  });
+
+  $("top30MarketPills").addEventListener("click", (e) => {
+    if (!e.target.classList.contains("pill")) return;
+    $("top30MarketPills").querySelectorAll(".pill").forEach((p) => p.classList.remove("active"));
+    e.target.classList.add("active");
+    state.top30MarketFilter = e.target.dataset.market;
+    renderTop30Board();
+  });
+  $("top30ThemeFilter").addEventListener("change", (e) => {
+    state.top30ThemeFilter = e.target.value;
+    renderTop30Board();
+  });
+  $("top30RatingFilter").addEventListener("change", (e) => {
+    state.top30RatingFilter = e.target.value;
+    renderTop30Board();
   });
   $("chartMarketPills").addEventListener("click", (e) => {
     if (!e.target.classList.contains("pill")) return;
@@ -1185,12 +1217,93 @@ async function loadScanner() {
       data = await apiFetch(`/api/scanner?${qs}`);
     }
     state.scannerData = data;
+    renderTop30Board();
     renderScannerView();
   } catch (err) {
     showToast("스캐너 오류: " + err.message, 4500);
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+function probBarColor(prob) {
+  if (prob >= 78) return "linear-gradient(90deg, #ff9100, #ffea00)";
+  if (prob >= 68) return "linear-gradient(90deg, #00c853, #69f0ae)";
+  if (prob >= 58) return "#ffd54f";
+  if (prob >= 42) return "#64748b";
+  return "#ef5350";
+}
+
+function renderTop30Board() {
+  const data = state.scannerData;
+  if (!data || !data.items) return;
+
+  const rc = data.rating_counts || {};
+  $("top30RatingKpis").innerHTML = `
+    <div class="kpi-box"><div><div class="muted">🔥 강력 매수</div><div class="muted">확률 78%↑ + 돌파/강세</div></div><div class="kpi-num" style="color:#ffab40">${rc.STRONG_BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟢 매수</div><div class="muted">확률 68~77%</div></div><div class="kpi-num pos">${rc.BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟡 매수 관심</div><div class="muted">확률 58~67%</div></div><div class="kpi-num" style="color:#ffd54f">${rc.WATCH_BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">⚪ 관망</div><div class="muted">대기 / 조정</div></div><div class="kpi-num" style="color:#8b9bb4">${rc.HOLD_WATCH || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🔴 매도 / 주의</div><div class="muted">이탈 / 약세</div></div><div class="kpi-num neg">${rc.SELL_WARN || 0}</div></div>
+  `;
+
+  $("top30UpdatedMeta").textContent = `기준: ${data.scanned_at} · ${data.strategy_name}`;
+
+  const ratingOrder = { STRONG_BUY: 4, BUY: 3, WATCH_BUY: 2, HOLD_WATCH: 1, SELL_WARN: 0 };
+  const minRating = state.top30RatingFilter === "ALL" ? -1 : (ratingOrder[state.top30RatingFilter] ?? -1);
+
+  const filtered = data.items
+    .filter((it) => {
+      if (state.top30MarketFilter !== "ALL" && it.market !== state.top30MarketFilter) return false;
+      if (state.top30ThemeFilter !== "ALL" && it.theme !== state.top30ThemeFilter) return false;
+      if ((ratingOrder[it.rating] ?? 0) < minRating) return false;
+      return true;
+    })
+    .sort((a, b) => (b.upside_prob - a.upside_prob) || (b.hist_pf_6y - a.hist_pf_6y) || (b.change_pct - a.change_pct))
+    .slice(0, 30);
+
+  if (filtered.length === 0) {
+    $("top30TableBody").innerHTML = `<tr><td colspan="10" class="muted" style="text-align:center;padding:28px;">선택한 필터 조건에 해당하는 종목이 없습니다.</td></tr>`;
+    return;
+  }
+
+  $("top30TableBody").innerHTML = filtered
+    .map((it, idx) => {
+      const rank = idx + 1;
+      const prob = Number(it.upside_prob || 0);
+      const factorsHtml = (it.prob_factors || [])
+        .map((f) => `<span class="factor-chip">${f}</span>`)
+        .join("");
+      return `
+        <tr data-sym="${it.symbol}">
+          <td class="num"><span class="rank-num ${rank <= 3 ? "rank-top3" : ""}">${rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : rank}</span></td>
+          <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
+          <td><span class="mkt-tag mkt-${it.market}">${it.market}</span><span class="theme-tag">${it.theme || ""}</span></td>
+          <td>
+            <div class="prob-cell">
+              <div class="prob-bar-track"><div class="prob-bar-fill" style="width:${prob}%;background:${probBarColor(prob)}"></div></div>
+              <span class="prob-num" style="color:${prob >= 68 ? "#69f0ae" : prob >= 58 ? "#ffd54f" : prob < 42 ? "#ff8a80" : "#c5d1e6"}">${prob.toFixed(1)}%</span>
+            </div>
+          </td>
+          <td><span class="rate-badge rate-${it.rating}">${it.rating_label}</span></td>
+          <td class="num">${fmtPrice(it.close, it.currency)}</td>
+          <td class="num ${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</td>
+          <td>
+            <span class="${it.above_ma20 ? "pos" : "neg"}">20${it.above_ma20 ? "▲" : "▼"}</span> ·
+            <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span>
+            <span class="${it.ma200_state === "up" ? "pos" : it.ma200_state === "flat" ? "" : "neg"}" style="${it.ma200_state === "flat" ? "color:#ffd54f" : ""}">
+              ${it.ma200_state === "up" ? "↗" : it.ma200_state === "flat" ? "→" : "↘"}
+            </span>
+          </td>
+          <td class="num muted">PF <b>${Number(it.hist_pf_6y || 0).toFixed(2)}</b> · ${Number(it.hist_wr_6y || 0).toFixed(0)}%</td>
+          <td>${factorsHtml || `<span class="muted">${it.reason}</span>`}</td>
+        </tr>`;
+    })
+    .join("");
+
+  $("top30TableBody").querySelectorAll("tr").forEach((tr) => {
+    tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, "S3"));
+  });
 }
 
 function renderScannerView() {
@@ -1239,6 +1352,8 @@ function renderScannerView() {
       (it) => `
       <tr data-sym="${it.symbol}">
         <td><span class="sig-badge sig-${it.signal}">${badgeText[it.signal]}</span></td>
+        <td><span class="rate-badge rate-${it.rating || "HOLD_WATCH"}">${it.rating_label || "⚪ 관망"}</span></td>
+        <td class="num"><b>${Number(it.upside_prob || 0).toFixed(1)}%</b></td>
         <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
         <td><span class="mkt-tag mkt-${it.market}">${it.market}</span><span class="theme-tag">${it.theme || ""}</span></td>
         <td class="num">${fmtPrice(it.close, it.currency)}</td>
