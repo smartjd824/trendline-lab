@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from config import ASSETS, MARKET_BEST_RULES, REPORTS_DIR, THEMES, load_settings
+from config import ASSETS, INDICES, MARKET_BEST_RULES, REPORTS_DIR, THEMES, load_settings
 from backend.backtester import STRATEGIES, build_indicator_map, run_backtest_single
 from backend.notifier import dispatch_alerts
 
@@ -673,6 +673,147 @@ def scan_all_assets(
         if strategy_id == "AUTO_BEST"
         else STRATEGIES.get(strategy_id, {"name": "커스텀 전략"})["name"]
     )
+    # 5. Global Indices & Macro Analysis (shown FIRST on dashboard & Telegram)
+    indices_analysis: list[dict[str, Any]] = []
+    for idx_meta in INDICES:
+        sym = idx_meta["symbol"]
+        ind = ind_map.get(sym)
+        if ind is None or len(ind) < 210:
+            continue
+        cur = _extract_bar_snapshot(ind, len(ind) - 1)
+        prev20 = ind.iloc[max(0, len(ind) - 21)]
+        ret20_pct = (cur["price"] / float(prev20["close"]) - 1.0) * 100.0 if float(prev20["close"]) > 0 else 0.0
+        rsi_code, rsi_label = _rsi_zone(cur["rsi14"])
+
+        if idx_meta["group"] == "MACRO":
+            # Macro interpretation
+            if sym == "^VIX":
+                if cur["price"] >= 28.0:
+                    m_status, m_code = "💎 극공포 (분할매수 기회)", "STRONG_BUY"
+                elif cur["price"] >= 20.0:
+                    m_status, m_code = "🟡 경계·변동성 확대", "WATCH_BUY"
+                elif cur["price"] <= 14.0:
+                    m_status, m_code = "🟢 저변동 안정장", "BUY"
+                else:
+                    m_status, m_code = "⚪ 정상 변동성", "HOLD_WATCH"
+            elif sym == "KRW=X":
+                if cur["price"] >= 1420.0:
+                    m_status, m_code = "🔴 원화 약세 (환율 부담)", "SELL_WARN"
+                elif cur["price"] <= 1330.0:
+                    m_status, m_code = "🟢 원화 강세 (외국인 우호)", "BUY"
+                else:
+                    m_status, m_code = "🟡 환율 경계 구간", "WATCH_BUY"
+            else:  # ^TNX (US 10Y yield)
+                if cur["price"] >= 4.5:
+                    m_status, m_code = "🔴 고금리 압박", "SELL_WARN"
+                elif cur["price"] <= 3.8:
+                    m_status, m_code = "🟢 금리 안정 (성장주 우호)", "BUY"
+                else:
+                    m_status, m_code = "🟡 중립 금리대", "HOLD_WATCH"
+
+            indices_analysis.append(
+                {
+                    **idx_meta,
+                    "date": cur["date"],
+                    "close": round(cur["price"], 2),
+                    "change_pct": round(cur["chg_pct"], 2),
+                    "ret5_pct": round(cur["ret5_pct"], 2),
+                    "ret20_pct": round(ret20_pct, 2),
+                    "ma20": round(cur["ma20"], 2) if cur["ma20"] else None,
+                    "ma200": round(cur["ma200"], 2) if cur["ma200"] else None,
+                    "above_ma20": bool(cur["ma20"] and cur["price"] > cur["ma20"]),
+                    "above_ma200": bool(cur["ma200"] and cur["price"] > cur["ma200"]),
+                    "ma200_state": cur["ma200_state"],
+                    "rsi14": round(cur["rsi14"], 1) if cur["rsi14"] is not None else None,
+                    "rsi_label": rsi_label,
+                    "weekly_bull": cur["weekly_bull"],
+                    "status_label": m_status,
+                    "status_code": m_code,
+                }
+            )
+        else:
+            # Investable equity / gold index — full backtest + probability + trade plan
+            bt_idx = run_backtest_single(sym, ind, strategy_id="S3", years=6, include_series=True, exit_rule="ma200_2d")
+            trades_i = bt_idx.get("trades", [])
+            last_tr = trades_i[-1] if trades_i else None
+            sig_i = "WATCH"
+            if last_tr and last_tr["open"]:
+                sig_i = "BUY" if last_tr["entry_date"] == cur["date"] else "HOLD"
+            elif last_tr and (not last_tr["open"]) and last_tr["exit_date"] == cur["date"]:
+                sig_i = "SELL"
+            elif cur["ma200_rule_ok"] and (
+                (cur["dist_su"] is not None and 0.0 <= cur["dist_su"] <= near_threshold_pct)
+                or (cur["dist_lu"] is not None and 0.0 <= cur["dist_lu"] <= near_threshold_pct)
+            ):
+                sig_i = "NEAR"
+
+            prob_i, r_code_i, r_label_i, factors_i = _score_upside_probability(
+                price=cur["price"],
+                open_p=cur["open"],
+                ma20=cur["ma20"],
+                ma20_slope=cur["ma20_slope"],
+                ma200=cur["ma200"],
+                ma200_state=cur["ma200_state"],
+                ma200_rule_ok=cur["ma200_rule_ok"],
+                weekly_bull=cur["weekly_bull"],
+                rsi14=cur["rsi14"],
+                signal=sig_i,
+                dist_su=cur["dist_su"],
+                dist_lu=cur["dist_lu"],
+                dist_sl=cur["dist_sl"],
+                vol_ratio=cur["vol_ratio"],
+                ret5_pct=cur["ret5_pct"],
+                hist_pf_6y=float(bt_idx.get("profit_factor", 1.5)),
+                hist_wr_6y=float(bt_idx.get("win_rate_pct", 40.0)),
+                hist_ret_6y=float(bt_idx.get("total_return_pct", 30.0)),
+                theme_bull_pct=market_regime["ALL"]["ma200_bull_pct"],
+            )
+            # Clean buy-side label for index investing
+            if r_code_i == "SELL_WARN":
+                if cur["rsi14"] is not None and cur["rsi14"] <= 36.0:
+                    r_code_i, r_label_i = "WATCH_BUY", "💎 과매도 분할주시"
+                else:
+                    r_code_i, r_label_i = "HOLD_WATCH", "⚪ 관망 (약세)"
+
+            tp_i = _compute_trade_plan(
+                price=cur["price"],
+                ma20=cur["ma20"],
+                ma200=cur["ma200"],
+                su=cur["su"],
+                sl=cur["sl"],
+                lu=cur["lu"],
+                high180=cur["high180"],
+                signal=sig_i,
+            )
+            indices_analysis.append(
+                {
+                    **idx_meta,
+                    "date": cur["date"],
+                    "close": round(cur["price"], 2),
+                    "change_pct": round(cur["chg_pct"], 2),
+                    "ret5_pct": round(cur["ret5_pct"], 2),
+                    "ret20_pct": round(ret20_pct, 2),
+                    "ma20": round(cur["ma20"], 2) if cur["ma20"] else None,
+                    "ma200": round(cur["ma200"], 2) if cur["ma200"] else None,
+                    "above_ma20": bool(cur["ma20"] and cur["price"] > cur["ma20"]),
+                    "above_ma200": bool(cur["ma200"] and cur["price"] > cur["ma200"]),
+                    "ma200_state": cur["ma200_state"],
+                    "ma200_rule_ok": cur["ma200_rule_ok"],
+                    "rsi14": round(cur["rsi14"], 1) if cur["rsi14"] is not None else None,
+                    "rsi_zone": rsi_code,
+                    "rsi_label": rsi_label,
+                    "weekly_bull": cur["weekly_bull"],
+                    "upside_prob": prob_i,
+                    "rating": r_code_i,
+                    "rating_label": r_label_i,
+                    "prob_factors": factors_i,
+                    "trade_plan": tp_i,
+                    "hist_pf_6y": float(bt_idx.get("profit_factor", 0.0)),
+                    "hist_ret_6y": float(bt_idx.get("total_return_pct", 0.0)),
+                    "bnh_ret_6y": float(bt_idx.get("bnh_return_pct", 0.0)),
+                }
+            )
+
     return {
         "scanned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "strategy_id": strategy_id,
@@ -680,6 +821,7 @@ def scan_all_assets(
         "counts": counts,
         "rating_counts": rating_counts,
         "oversold_total": oversold_total,
+        "indices": indices_analysis,
         "market_regime": market_regime,
         "themes": theme_stats,
         "items": items,
@@ -706,10 +848,27 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
 
     mr = scan.get("market_regime", {})
     rc = scan.get("rating_counts", {})
-    sections: list[str] = [
+    sections: list[str] = []
+
+    idx_list = scan.get("indices", [])
+    if idx_list:
+        sections.append("🌍 주요 지수 & 매크로 흐름")
+        for x in idx_list:
+            if x["group"] == "INDEX":
+                arrow = "↗" if x["ma200_state"] == "up" else ("→" if x["ma200_state"] == "flat" else "↘")
+                sections.append(
+                    f"  • {x['name']}: {x['close']:,.2f} ({x['change_pct']:+.1f}%, 1M {x['ret20_pct']:+.1f}%) · 확률 {x['upside_prob']:.0f}% [{x['rating_label']}] · RSI {x['rsi14']} · MA200{arrow}"
+                )
+            else:
+                sections.append(
+                    f"  • {x['name']}: {x['close']:,.2f}{x['unit']} ({x['change_pct']:+.1f}%) — {x['status_label']}"
+                )
+        sections.append("")
+
+    sections.extend([
         f"🌡️ 시장 온도(MA200 위): 코스피 {mr.get('KOSPI', {}).get('ma200_above_pct', 0)}% · 코스닥 {mr.get('KOSDAQ', {}).get('ma200_above_pct', 0)}% · 미국 {mr.get('US', {}).get('ma200_above_pct', 0)}% · 코인 {mr.get('CRYPTO', {}).get('ma200_above_pct', 0)}%",
         f"의견: 🔥강력매수 {rc.get('STRONG_BUY', 0)} | 🟢매수 {rc.get('BUY', 0)} | 🟡관심 {rc.get('WATCH_BUY', 0)} | 💎RSI과매도 {scan.get('oversold_total', 0)}",
-    ]
+    ])
 
     hot_themes = scan.get("themes", [])[:3]
     if hot_themes:

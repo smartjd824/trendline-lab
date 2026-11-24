@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSETS, BASE_DIR, MARKET_BEST_RULES, THEMES
+from config import ASSETS, BASE_DIR, INDICES, MARKET_BEST_RULES, THEMES
 from backend.backtester import (
     DEFAULT_CUSTOM_PARAMS,
     EXIT_RULES,
@@ -45,7 +45,7 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 def _safe_sym(symbol: str) -> str:
-    return symbol.replace("/", "_").replace(".", "_")
+    return symbol.replace("/", "_").replace(".", "_").replace("^", "IDX_").replace("=", "_")
 
 
 def _write_json(path: Path, data: Any) -> None:
@@ -209,9 +209,9 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
         _write_json(DOCS_DIR / "data" / f"scanner_{sid}.json", scan_all_assets(strategy_id=sid))
     print("[Build] Wrote scanner & latest report.", flush=True)
 
-    # 5. Precompute 150 individual chart JSONs
+    # 5. Precompute 250 individual asset + 10 global index chart JSONs
     charts_written = 0
-    for asset in ASSETS:
+    for asset in list(ASSETS) + list(INDICES):
         sym = asset["symbol"]
         ind = ind_map.get(sym)
         if ind is None or len(ind) < 210:
@@ -219,7 +219,7 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
         payload = _build_chart_payload(asset, ind)
         _write_json(DOCS_DIR / "data" / "charts" / f"{_safe_sym(sym)}.json", payload)
         charts_written += 1
-    print(f"[Build] Wrote {charts_written} chart JSON files.", flush=True)
+    print(f"[Build] Wrote {charts_written} chart JSON files (250 assets + 10 indices).", flush=True)
 
     # 6. Meta + optional SHA-256 passcode lock
     pass_hash = hashlib.sha256(passcode.strip().encode("utf-8")).hexdigest() if passcode.strip() else ""

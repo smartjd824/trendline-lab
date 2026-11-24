@@ -19,7 +19,7 @@
     </div>
 
     <nav class="tabs" role="tablist">
-      <button class="tab-btn active" data-tab="top30">🏆 상승확률 TOP 30</button>
+      <button class="tab-btn active" data-tab="top30">🌍 지수 · TOP 30</button>
       <button class="tab-btn" data-tab="portfolio">💼 내 보유종목 <span id="navHoldCount" class="nav-count">0</span></button>
       <button class="tab-btn" data-tab="chart">📈 차트 연구실</button>
       <button class="tab-btn" data-tab="research">🧪 250종목 · 테마</button>
@@ -33,9 +33,19 @@
   </header>
 
   <main class="main-shell">
-    <!-- ==================== TAB 0: TOP 30 UPSIDE PROBABILITY LEADERBOARD ==================== -->
+    <!-- ==================== TAB 0: GLOBAL INDICES + TOP 30 LEADERBOARD ==================== -->
     <section id="tab-top30" class="tab-pane active">
       <div class="research-container">
+        <!-- FIRST: Major Indices & Macro Flow (for market flow + index ETF investing) -->
+        <div class="card index-hero-card">
+          <div class="card-title">
+            <span>🌍 주요 지수 · 매크로 흐름 &amp; 지수 투자 분석 (클릭 시 지수 차트 열기)</span>
+            <span class="muted">지수 추세(MA20·MA200·추세선·RSI)로 먼저 큰 흐름을 확인하세요</span>
+          </div>
+          <div id="indicesGrid" class="indices-grid"></div>
+          <div id="macroGrid" class="macro-grid"></div>
+        </div>
+
         <!-- Market Regime Thermometer -->
         <div class="card">
           <div class="card-title">

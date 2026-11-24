@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, MARKETS, THEMES
+from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, INDEX_MAP, INDICES, MARKETS, THEMES
 from backend.data_loader import load_all_cached_ohlcv, load_ohlcv
 from backend.indicators import compute_indicator_frame
 
@@ -172,7 +172,7 @@ def build_indicator_map(
     """Load/compute indicator frames for all assets in parallel (uses memory + disk cache)."""
     all_dfs = load_all_cached_ohlcv()
     tasks = []
-    for asset in ASSETS:
+    for asset in list(ASSETS) + list(INDICES):
         sym = asset["symbol"]
         df = all_dfs.get(sym)
         if df is not None and len(df) >= 220:
@@ -419,7 +419,7 @@ def run_backtest_single(
     exit_rule: str = "default",
 ) -> dict[str, Any]:
     """Run causal backtest for a single symbol over the last `years` (2, 4, or 6)."""
-    asset = ASSET_MAP.get(symbol, {"symbol": symbol, "name": symbol, "market": "UNKNOWN", "currency": "USD"})
+    asset = ASSET_MAP.get(symbol) or INDEX_MAP.get(symbol) or {"symbol": symbol, "name": symbol, "market": "UNKNOWN", "currency": "USD", "theme": "기타"}
     if ind.empty or len(ind) < 220:
         return {
             "symbol": symbol,

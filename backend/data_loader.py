@@ -9,7 +9,7 @@ from typing import Iterable
 import pandas as pd
 import yfinance as yf
 
-from config import ASSET_MAP, ASSETS, DB_PATH
+from config import ASSET_MAP, ASSETS, DB_PATH, INDEX_MAP, INDICES
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -81,7 +81,7 @@ def fetch_and_cache_symbols(
     force: bool = False,
 ) -> dict:
     """Download daily OHLCV via yfinance and upsert into local SQLite cache."""
-    target_symbols = list(symbols) if symbols else [a["symbol"] for a in ASSETS]
+    target_symbols = list(symbols) if symbols else ([a["symbol"] for a in ASSETS] + [i["symbol"] for i in INDICES])
     conn = _get_conn()
     now_iso = datetime.now(timezone.utc).isoformat()
     start_date = (datetime.now() - timedelta(days=int(years * 365))).strftime("%Y-%m-%d")
@@ -222,7 +222,7 @@ def load_all_cached_ohlcv() -> dict[str, pd.DataFrame]:
     if all_df.empty:
         return result
     for sym, grp in all_df.groupby("symbol", sort=False):
-        if sym in ASSET_MAP:
+        if sym in ASSET_MAP or sym in INDEX_MAP:
             g = grp.drop(columns=["symbol"]).reset_index(drop=True)
             g["date_dt"] = pd.to_datetime(g["date"])
             result[str(sym)] = g

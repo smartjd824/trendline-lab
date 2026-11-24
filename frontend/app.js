@@ -3,7 +3,7 @@
 const IS_STATIC = Boolean(window.STATIC_MODE);
 
 function safeSym(symbol) {
-  return symbol.replaceAll("/", "_").replaceAll(".", "_");
+  return symbol.replaceAll("/", "_").replaceAll(".", "_").replaceAll("^", "IDX_").replaceAll("=", "_");
 }
 
 async function sha256Hex(str) {
@@ -68,6 +68,8 @@ function showToast(msg, duration = 3200) {
 
 function fmtPrice(val, currency = "USD") {
   if (val === null || val === undefined || Number.isNaN(val)) return "-";
+  if (currency === "PT") return Number(val).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (currency === "PCT") return Number(val).toFixed(2) + "%";
   if (currency === "KRW") return Math.round(val).toLocaleString("ko-KR") + "원";
   if (Math.abs(val) >= 100) return "$" + Number(val).toLocaleString("en-US", { maximumFractionDigits: 2 });
   if (Math.abs(val) >= 1) return "$" + Number(val).toFixed(2);
@@ -1455,6 +1457,9 @@ async function loadScanner() {
     (data.items || []).forEach((it) => {
       state.scannerMap[it.symbol] = it;
     });
+    (data.indices || []).forEach((ix) => {
+      state.scannerMap[ix.symbol] = ix;
+    });
     renderTop30Board();
     renderPortfolioTab();
     renderScannerView();
@@ -1574,10 +1579,74 @@ function renderMarketThermometer(mr) {
     .join("");
 }
 
+function renderIndicesBoard(indices) {
+  const idxGrid = $("indicesGrid");
+  const macroGrid = $("macroGrid");
+  if (!idxGrid || !macroGrid || !indices) return;
+
+  const eqIdx = indices.filter((x) => x.group === "INDEX");
+  const macros = indices.filter((x) => x.group === "MACRO");
+
+  idxGrid.innerHTML = eqIdx
+    .map((x) => {
+      const arrow = x.ma200_state === "up" ? "↗" : x.ma200_state === "flat" ? "→" : "↘";
+      const prob = Number(x.upside_prob || 0);
+      const valStr = x.unit === "$" ? fmtPrice(x.close, "USD") : Number(x.close).toLocaleString("en-US", { maximumFractionDigits: 1 });
+      return `
+        <div class="idx-card" data-sym="${x.symbol}">
+          <div class="idx-top">
+            <span class="idx-name">${x.name}</span>
+            <span class="idx-etf">${x.etf_tip}</span>
+          </div>
+          <div class="idx-price-row">
+            <span class="idx-price">${valStr}</span>
+            <span class="${pctClass(x.change_pct)}" style="font-size:11.5px;">${fmtPct(x.change_pct)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;">
+            <span class="rate-badge rate-${x.rating}" style="font-size:10px;padding:2px 6px;">${x.rating_label}</span>
+            <b style="font-size:12px;color:${prob >= 66 ? "#69f0ae" : prob >= 55 ? "#ffd54f" : "#9db0cc"}">${prob.toFixed(0)}%</b>
+          </div>
+          <div class="idx-meta">
+            <span>200${x.above_ma200 ? "▲" : "▼"}${arrow} · 1M <b class="${pctClass(x.ret20_pct)}">${fmtPct(x.ret20_pct)}</b></span>
+          </div>
+          <div class="idx-meta">
+            <span>RSI ${x.rsi14 !== null ? (x.rsi14 <= 36 ? `<b style="color:#40e0ff">💎${x.rsi14}</b>` : x.rsi14) : "-"}</span>
+            <span>${x.weekly_bull ? '<span class="pos">주봉↗</span>' : '<span class="neg">주봉↘</span>'}</span>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  macroGrid.innerHTML = macros
+    .map((m) => {
+      const valStr =
+        m.unit === "%" ? `${Number(m.close).toFixed(2)}%`
+        : m.unit === "원" ? `${Math.round(m.close).toLocaleString("ko-KR")}원`
+        : Number(m.close).toFixed(2);
+      return `
+        <div class="macro-card" data-sym="${m.symbol}">
+          <div>
+            <div style="font-weight:700;font-size:12.5px;">${m.name} <span class="muted">(${m.etf_tip})</span></div>
+            <div class="muted" style="font-size:11px;">1개월 ${fmtPct(m.ret20_pct)} · RSI ${m.rsi14 ?? "-"}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:15px;font-weight:800;">${valStr} <span class="${pctClass(m.change_pct)}" style="font-size:11px;">${fmtPct(m.change_pct)}</span></div>
+            <span class="rate-badge rate-${m.status_code}" style="font-size:10px;padding:1px 7px;">${m.status_label}</span>
+          </div>
+        </div>`;
+    })
+    .join("");
+
+  [...idxGrid.querySelectorAll(".idx-card"), ...macroGrid.querySelectorAll(".macro-card")].forEach((el) => {
+    el.addEventListener("click", () => jumpToChart(el.dataset.sym, "S3"));
+  });
+}
+
 function renderTop30Board() {
   const data = state.scannerData;
   if (!data || !data.items) return;
 
+  renderIndicesBoard(data.indices);
   renderMarketThermometer(data.market_regime);
 
   const rc = data.rating_counts || {};

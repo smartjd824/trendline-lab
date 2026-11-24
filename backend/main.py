@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import ASSET_MAP, ASSETS, BASE_DIR, THEMES, load_settings, save_settings
+from config import ASSET_MAP, ASSETS, BASE_DIR, INDEX_MAP, INDICES, THEMES, load_settings, save_settings
 from backend.backtester import (
     DEFAULT_CUSTOM_PARAMS,
     EXIT_RULES,
@@ -98,7 +98,7 @@ def api_chart(
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
 ):
-    if symbol not in ASSET_MAP:
+    if symbol not in ASSET_MAP and symbol not in INDEX_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {symbol}")
 
     df = load_ohlcv(symbol, auto_fetch=True)
@@ -212,7 +212,7 @@ def api_chart(
     )
 
     return {
-        "asset": ASSET_MAP[symbol],
+        "asset": ASSET_MAP.get(symbol) or INDEX_MAP[symbol],
         "candles": candles,
         "volumes": volumes,
         "ma20": ma20_series,

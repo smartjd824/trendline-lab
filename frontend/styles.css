@@ -831,6 +831,102 @@ body {
   text-align: center;
 }
 
+.index-hero-card {
+  border-color: #294066;
+  background: linear-gradient(175deg, #131b29, #0e141f);
+}
+
+.indices-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.idx-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: all 0.14s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.idx-card:hover {
+  border-color: #2979ff;
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+
+.idx-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.idx-name {
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.idx-etf {
+  font-size: 9.5px;
+  color: #82b1ff;
+  background: rgba(41, 121, 255, 0.16);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.idx-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.idx-price {
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+.idx-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.macro-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.macro-card {
+  background: rgba(8, 11, 16, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.14s;
+}
+
+.macro-card:hover {
+  border-color: #3a527a;
+}
+
 .nav-count {
   display: inline-block;
   margin-left: 4px;
@@ -1132,6 +1228,8 @@ body {
   .chart-workspace { grid-template-columns: 1fr; }
   .asset-sidebar { height: 220px; }
   .chart-bottom-grid, .charts-two-col, .scanner-grid { grid-template-columns: 1fr; }
+  .indices-grid { grid-template-columns: repeat(3, 1fr); }
+  .macro-grid { grid-template-columns: 1fr; }
   .rec-grid, .scanner-kpis, .rating-kpis, .thermo-grid { grid-template-columns: repeat(2, 1fr); }
   .trade-plan-grid { grid-template-columns: repeat(2, 1fr); }
   .theme-heat-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1143,6 +1241,7 @@ body {
   .tab-btn { flex: 1; padding: 7px 6px; font-size: 11.5px; white-space: nowrap; }
   .topbar-actions { justify-content: space-between; }
   .tv-chart-container { height: 340px; }
+  .indices-grid { grid-template-columns: repeat(2, 1fr); }
   .rec-grid, .scanner-kpis, .rating-kpis, .thermo-grid { grid-template-columns: 1fr 1fr; }
   .mini-kpi-grid { grid-template-columns: 1fr; }
 }
