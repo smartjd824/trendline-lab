@@ -63,24 +63,24 @@ def _score_upside_probability(
     Transparent 6-factor quantitative upside probability model (clamped 5% ~ 95%).
     Returns (upside_prob_pct, rating_code, rating_label, key_factors).
     """
-    score = 35.0
+    score = 28.0
     factors: list[str] = []
 
-    # 1. MA200 대세 추세 & 기울기 (+24 ~ -16)
+    # 1. MA200 대세 추세 & 기울기 (+22 ~ -16)
     if ma200 and price > ma200:
         if ma200_state == "up":
-            score += 22.0
+            score += 20.0
             factors.append("MA200 상승↗")
         elif ma200_state == "flat":
-            score += 17.0
+            score += 15.0
             factors.append("MA200 평평→전환")
         else:
-            score += 3.0
+            score += 2.0
     else:
         score -= 16.0
         factors.append("MA200 하회")
 
-    # 2. 추세선 구조 & 돌파 상태 (+24 ~ -22)
+    # 2. 추세선 구조 & 돌파 상태 (+22 ~ -22)
     min_upper_dist = min(
         [d for d in (dist_su, dist_lu) if d is not None],
         default=None,
@@ -89,79 +89,76 @@ def _score_upside_probability(
         score += 22.0
         factors.append("상단 추세선 돌파")
     elif signal == "NEAR":
-        prox_bonus = max(11.0, 18.0 - max(min_upper_dist or 2.0, 0.0) * 1.8)
+        prox_bonus = max(12.0, 19.0 - max(min_upper_dist or 2.0, 0.0) * 2.0)
         score += prox_bonus
         factors.append(f"돌파 임박({min_upper_dist:.1f}%)" if min_upper_dist is not None else "돌파 임박")
     elif signal == "HOLD":
-        score += 13.0
+        score += 12.0
         factors.append("상승 추세 보유중")
     elif signal == "SELL":
         score -= 22.0
         factors.append("추세 이탈/청산")
     else:
-        # Check if bouncing cleanly near rising lower support
         if dist_sl is not None and -1.0 <= dist_sl <= 4.0 and price >= open_p:
             score += 9.0
             factors.append("하단 지지 반등")
         elif min_upper_dist is not None and 3.0 < min_upper_dist <= 7.0 and ma200_rule_ok:
-            score += 5.0
+            score += 6.0
             factors.append(f"저항선 {min_upper_dist:.1f}% 접근")
 
-    # 3. MA20 단기 모멘텀 & 과열 방지 (+13 ~ -6)
+    # 3. MA20 단기 모멘텀 & 과열 방지 (+12 ~ -6)
     if ma20 and ma20 > 0:
         gap_ma20 = (price / ma20 - 1.0) * 100.0
         if price > ma20:
             if ma20_slope is not None and ma20_slope > 0:
                 if gap_ma20 <= 10.0:
-                    score += 13.0
+                    score += 11.5 - abs(gap_ma20 - 4.0) * 0.25
                     factors.append("MA20 건전상승")
                 elif gap_ma20 <= 18.0:
-                    score += 8.0
+                    score += 6.5
                 else:
-                    score += 3.0
+                    score += 2.0
                     factors.append("단기 과열주의")
             else:
-                score += 7.0
+                score += 6.0
         else:
             score -= 6.0
 
-    # 4. 거래량 & 5일 단기 수급 (+10 ~ -4)
+    # 4. 거래량 & 5일 단기 수급 (+9 ~ -4)
     if vol_ratio >= 1.6 and price >= open_p:
-        score += 9.0
+        score += min(9.0, 5.5 + (vol_ratio - 1.6) * 2.0)
         factors.append(f"거래량 {vol_ratio:.1f}x")
     elif vol_ratio >= 1.15 and ret5_pct > 0:
-        score += 5.0
+        score += min(5.0, 2.5 + ret5_pct * 0.25)
     elif ret5_pct < -6.0:
         score -= 4.0
 
-    # 5. 해당 종목의 6년 과거 전략 궁합 (PF · 승률, +11 ~ -7)
-    if hist_pf_6y >= 2.5 and hist_ret_6y > 30.0:
-        score += 11.0
-        factors.append(f"6년 PF {hist_pf_6y:.1f}")
-    elif hist_pf_6y >= 1.6 and hist_ret_6y > 0.0:
-        score += 7.0
-    elif hist_pf_6y >= 1.1 and hist_wr_6y >= 40.0:
-        score += 3.0
-    elif hist_pf_6y > 0 and hist_pf_6y < 0.9:
+    # 5. 해당 종목의 6년 과거 전략 궁합 (연속 PF·승률 반영, +13 ~ -8)
+    if hist_pf_6y >= 1.0:
+        pf_pts = min(9.0, np.log1p(hist_pf_6y - 1.0) * 3.8)
+        wr_pts = min(4.0, max(0.0, (hist_wr_6y - 20.0) * 0.08))
+        score += pf_pts + wr_pts
+        if hist_pf_6y >= 2.2 and hist_ret_6y > 20.0:
+            factors.append(f"6년 PF {hist_pf_6y:.1f}")
+    elif hist_pf_6y > 0:
         score -= 7.0
 
     # 6. 소속 테마 자금 유입 강도 (+6 ~ 0)
+    theme_pts = min(6.0, max(0.0, (theme_bull_pct - 10.0) * 0.16))
+    score += theme_pts
     if theme_bull_pct >= 35.0:
-        score += 6.0
         factors.append("강세 테마")
-    elif theme_bull_pct >= 22.0:
-        score += 3.0
 
-    prob = round(float(np.clip(score, 5.0, 95.0)), 1)
+    prob = round(float(np.clip(score, 5.0, 94.9)), 1)
 
-    # 5-tier actionable rating
+    # 5-tier actionable rating (Strong Buy requires proven historical edge PF >= 1.2)
     if signal == "SELL" or prob < 42.0:
         r_code = "SELL_WARN"
-    elif prob >= 78.0 and ma200_rule_ok and signal in ("BUY", "NEAR", "HOLD"):
+    elif prob >= 75.0 and ma200_rule_ok and hist_pf_6y >= 1.2 and signal in ("BUY", "NEAR", "HOLD"):
         r_code = "STRONG_BUY"
-    elif prob >= 68.0 and ma200_rule_ok:
+    elif prob >= 66.0 and ma200_rule_ok:
         r_code = "BUY"
-    elif prob >= 58.0 and ma200_rule_ok:
+    elif prob >= 56.0 and ma200_rule_ok:
         r_code = "WATCH_BUY"
     else:
         r_code = "HOLD_WATCH"

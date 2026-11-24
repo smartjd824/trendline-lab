@@ -1227,9 +1227,9 @@ async function loadScanner() {
 }
 
 function probBarColor(prob) {
-  if (prob >= 78) return "linear-gradient(90deg, #ff9100, #ffea00)";
-  if (prob >= 68) return "linear-gradient(90deg, #00c853, #69f0ae)";
-  if (prob >= 58) return "#ffd54f";
+  if (prob >= 75) return "linear-gradient(90deg, #ff9100, #ffea00)";
+  if (prob >= 66) return "linear-gradient(90deg, #00c853, #69f0ae)";
+  if (prob >= 56) return "#ffd54f";
   if (prob >= 42) return "#64748b";
   return "#ef5350";
 }
@@ -1240,9 +1240,9 @@ function renderTop30Board() {
 
   const rc = data.rating_counts || {};
   $("top30RatingKpis").innerHTML = `
-    <div class="kpi-box"><div><div class="muted">🔥 강력 매수</div><div class="muted">확률 78%↑ + 돌파/강세</div></div><div class="kpi-num" style="color:#ffab40">${rc.STRONG_BUY || 0}</div></div>
-    <div class="kpi-box"><div><div class="muted">🟢 매수</div><div class="muted">확률 68~77%</div></div><div class="kpi-num pos">${rc.BUY || 0}</div></div>
-    <div class="kpi-box"><div><div class="muted">🟡 매수 관심</div><div class="muted">확률 58~67%</div></div><div class="kpi-num" style="color:#ffd54f">${rc.WATCH_BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🔥 강력 매수</div><div class="muted">확률 75%↑ + PF≥1.2</div></div><div class="kpi-num" style="color:#ffab40">${rc.STRONG_BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟢 매수</div><div class="muted">확률 66~74%</div></div><div class="kpi-num pos">${rc.BUY || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟡 매수 관심</div><div class="muted">확률 56~65%</div></div><div class="kpi-num" style="color:#ffd54f">${rc.WATCH_BUY || 0}</div></div>
     <div class="kpi-box"><div><div class="muted">⚪ 관망</div><div class="muted">대기 / 조정</div></div><div class="kpi-num" style="color:#8b9bb4">${rc.HOLD_WATCH || 0}</div></div>
     <div class="kpi-box"><div><div class="muted">🔴 매도 / 주의</div><div class="muted">이탈 / 약세</div></div><div class="kpi-num neg">${rc.SELL_WARN || 0}</div></div>
   `;
