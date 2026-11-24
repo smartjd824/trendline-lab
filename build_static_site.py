@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSETS, BASE_DIR, MARKET_BEST_RULES
+from config import ASSETS, BASE_DIR, MARKET_BEST_RULES, THEMES
 from backend.backtester import (
     DEFAULT_CUSTOM_PARAMS,
     EXIT_RULES,
@@ -229,6 +229,7 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
         "passcode_required": bool(pass_hash),
         "passcode_sha256": pass_hash,
         "assets": ASSETS,
+        "themes": THEMES,
         "strategies": list(STRATEGIES.values()),
         "exit_rules": list(EXIT_RULES.values()),
         "market_best_rules": MARKET_BEST_RULES,

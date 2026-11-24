@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, MARKETS
+from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, MARKETS, THEMES
 from backend.data_loader import load_all_cached_ohlcv, load_ohlcv
 from backend.indicators import compute_indicator_frame
 
@@ -630,6 +630,7 @@ def run_backtest_single(
         "symbol": symbol,
         "name": asset["name"],
         "market": asset["market"],
+        "theme": asset.get("theme", "기타"),
         "currency": asset["currency"],
         "strategy_id": strategy_id,
         "exit_rule": exit_rule,
@@ -765,6 +766,7 @@ def run_research_matrix(
                 "KOSDAQ": _agg([r for r in rows if r["market"] == "KOSDAQ"]),
                 "US": _agg([r for r in rows if r["market"] == "US"]),
                 "CRYPTO": _agg([r for r in rows if r["market"] == "CRYPTO"]),
+                "THEMES": {th["id"]: _agg([r for r in rows if r.get("theme") == th["id"]]) for th in THEMES},
             }
 
         overall_score = round(

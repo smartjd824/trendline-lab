@@ -7,9 +7,11 @@ from typing import Any
 
 import numpy as np
 
-from config import ASSETS, MARKET_BEST_RULES, REPORTS_DIR, load_settings
+from config import ASSETS, MARKET_BEST_RULES, REPORTS_DIR, THEMES, load_settings
 from backend.backtester import STRATEGIES, build_indicator_map, run_backtest_single
 from backend.notifier import dispatch_alerts
+
+THEME_LABELS = {t["id"]: t["label"] for t in THEMES}
 
 MARKET_LABELS = {
     "KOSPI": "🇰🇷 코스피",
@@ -156,6 +158,7 @@ def scan_all_assets(
                 "symbol": sym,
                 "name": asset["name"],
                 "market": mkt,
+                "theme": asset.get("theme", "기타"),
                 "currency": asset["currency"],
                 "date": last_date,
                 "close": round(price, 4),
@@ -197,6 +200,35 @@ def scan_all_assets(
         "HOLD": sum(1 for x in items if x["signal"] == "HOLD"),
         "WATCH": sum(1 for x in items if x["signal"] == "WATCH"),
     }
+
+    # Theme heat / momentum summary across all 10 themes
+    theme_stats = []
+    for th in THEMES:
+        tid = th["id"]
+        sub = [x for x in items if x.get("theme") == tid]
+        if not sub:
+            continue
+        b_cnt = sum(1 for x in sub if x["signal"] == "BUY")
+        s_cnt = sum(1 for x in sub if x["signal"] == "SELL")
+        n_cnt = sum(1 for x in sub if x["signal"] == "NEAR")
+        h_cnt = sum(1 for x in sub if x["signal"] == "HOLD")
+        bull_pct = round(sum(1 for x in sub if x["ma200_rule_ok"]) / len(sub) * 100.0, 1)
+        heat = round(b_cnt * 4.0 + n_cnt * 2.5 + h_cnt * 0.6 + (bull_pct / 25.0) - s_cnt * 1.5, 2)
+        theme_stats.append(
+            {
+                "id": tid,
+                "label": th["label"],
+                "total": len(sub),
+                "BUY": b_cnt,
+                "SELL": s_cnt,
+                "NEAR": n_cnt,
+                "HOLD": h_cnt,
+                "ma200_ok_pct": bull_pct,
+                "heat": heat,
+            }
+        )
+    theme_stats.sort(key=lambda x: (x["heat"], x["BUY"] + x["NEAR"], x["ma200_ok_pct"]), reverse=True)
+
     strat_name = (
         "시장별 최적 자동매칭 (코스피·코스닥·미국·코인)"
         if strategy_id == "AUTO_BEST"
@@ -207,14 +239,15 @@ def scan_all_assets(
         "strategy_id": strategy_id,
         "strategy_name": strat_name,
         "counts": counts,
+        "themes": theme_stats,
         "items": items,
     }
 
 
 def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) -> tuple[str, str, str, list[dict[str, Any]]]:
     """
-    Build complete un-truncated report grouping ALL triggered stocks by Signal -> Market.
-    Returns (title, full_text, macos_summary, triggered_items).
+    Build complete un-truncated report grouping ALL triggered stocks by Signal -> Market,
+    headed by Top 3 Hot Themes.
     """
     items = scan["items"]
     buys = [x for x in items if x["signal"] == "BUY"]
@@ -223,12 +256,20 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
     triggered = buys + sells + nears
 
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    title = f"[추세선 150종목 알림 · {date_str}] 매수 {len(buys)} · 매도 {len(sells)} · 임박 {len(nears)}"
+    title = f"[추세선 {len(items)}종목 알림 · {date_str}] 매수 {len(buys)} · 매도 {len(sells)} · 임박 {len(nears)}"
 
     sections: list[str] = [
         f"전략: {scan['strategy_name']}",
         f"요약: 🟢매수 {len(buys)} | 🔴매도 {len(sells)} | 🟡임박 {len(nears)} | 🔵보유 {scan['counts']['HOLD']} (총 {len(items)}종목)",
     ]
+
+    hot_themes = scan.get("themes", [])[:3]
+    if hot_themes:
+        sections.append("\n🔥 오늘의 강세 테마 Top 3")
+        for idx, th in enumerate(hot_themes, 1):
+            sections.append(
+                f"  {idx}. {th['label']}: 매수 {th['BUY']} · 임박 {th['NEAR']} · 보유 {th['HOLD']} (MA200 강세 {th['ma200_ok_pct']}%)"
+            )
 
     def _add_group(header: str, group: list[dict[str, Any]]) -> None:
         if not group:
@@ -242,8 +283,9 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
             for it in sub:
                 p_str = _fmt_price(it["close"], it["currency"])
                 arrow = "↗" if it["ma200_state"] == "up" else ("→" if it["ma200_state"] == "flat" else "↘")
+                th_name = it.get("theme", "")
                 sections.append(
-                    f"  • {it['name']}({it['symbol']}) {p_str} ({it['change_pct']:+.1f}%, MA200{arrow}) — {it['reason']}"
+                    f"  • [{th_name}] {it['name']}({it['symbol']}) {p_str} ({it['change_pct']:+.1f}%, MA200{arrow}) — {it['reason']}"
                 )
 
     _add_group("🟢 신규 매수 신호", buys)
@@ -251,6 +293,7 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
     if include_near:
         _add_group("🟡 추세선 돌파 임박", nears)
 
+    sections.append("\n🌐 웹 차트 바로가기: https://smartjd824.github.io/trendline-lab/")
     full_text = "\n".join(sections)
 
     # Concise macOS desktop summary (fits macOS banner cleanly)

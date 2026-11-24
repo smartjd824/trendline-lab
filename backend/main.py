@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import ASSET_MAP, ASSETS, BASE_DIR, load_settings, save_settings
+from config import ASSET_MAP, ASSETS, BASE_DIR, THEMES, load_settings, save_settings
 from backend.backtester import (
     DEFAULT_CUSTOM_PARAMS,
     EXIT_RULES,
@@ -70,6 +70,7 @@ def serve_index():
 def api_assets():
     return {
         "assets": ASSETS,
+        "themes": THEMES,
         "strategies": list(STRATEGIES.values()),
         "exit_rules": list(EXIT_RULES.values()),
         "cache": get_cache_status(),

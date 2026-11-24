@@ -15,11 +15,13 @@ async function sha256Hex(str) {
 
 const state = {
   assets: [],
+  themes: [],
   strategies: [],
   exitRules: [],
   settings: null,
   selectedSymbol: "005930.KS",
   chartMarketFilter: "ALL",
+  chartThemeFilter: "ALL",
   chartStrategy: "S5",
   exitRule: "default",
   chartYears: 6,
@@ -28,8 +30,11 @@ const state = {
   priceSource: "wick",
   scaleMode: "linear",
   researchMarket: "ALL",
+  matrixThemeFilter: "ALL",
+  scannerThemeFilter: "ALL",
   researchData: null,
   exitCompareData: null,
+  scannerData: null,
   exitTestStrategy: "S3",
   matrixStrategy: "S5",
   scannerStrategy: "S5",
@@ -144,6 +149,7 @@ async function init() {
     await ensureUnlocked(meta);
 
     state.assets = meta.assets;
+    state.themes = meta.themes || [];
     state.strategies = meta.strategies;
     state.exitRules = meta.exit_rules || [];
     state.settings = meta.settings;
@@ -166,6 +172,7 @@ async function init() {
 
     populateStrategySelects();
     populateExitSelects();
+    populateThemeSelects();
     if (!IS_STATIC) {
       populateSettingsForm(meta.settings);
       updateCacheBadge(meta.cache);
@@ -228,6 +235,16 @@ function populateExitSelects() {
   });
 }
 
+function populateThemeSelects() {
+  const html =
+    `<option value="ALL">전체 테마 (10대 테마)</option>` +
+    state.themes.map((t) => `<option value="${t.id}">${t.label}</option>`).join("");
+  ["chartThemeFilter", "matrixThemeFilter", "scannerThemeFilter"].forEach((id) => {
+    const sel = $(id);
+    if (sel) sel.innerHTML = html;
+  });
+}
+
 function populateSettingsForm(settings) {
   const a = settings.alerts || {};
   $("cfgMacos").checked = !!a.macos_enabled;
@@ -262,6 +279,18 @@ function bindEvents() {
   $("syncBtn").addEventListener("click", () => syncMarketData(true));
 
   $("assetSearch").addEventListener("input", renderAssetList);
+  $("chartThemeFilter").addEventListener("change", (e) => {
+    state.chartThemeFilter = e.target.value;
+    renderAssetList();
+  });
+  $("matrixThemeFilter").addEventListener("change", (e) => {
+    state.matrixThemeFilter = e.target.value;
+    renderAssetMatrix();
+  });
+  $("scannerThemeFilter").addEventListener("change", (e) => {
+    state.scannerThemeFilter = e.target.value;
+    renderScannerView();
+  });
   $("chartMarketPills").addEventListener("click", (e) => {
     if (!e.target.classList.contains("pill")) return;
     $("chartMarketPills").querySelectorAll(".pill").forEach((p) => p.classList.remove("active"));
@@ -334,6 +363,7 @@ function bindEvents() {
 
   $("matrixStrategySelect").addEventListener("change", (e) => {
     state.matrixStrategy = e.target.value;
+    renderThemeSummary();
     renderAssetMatrix();
   });
   $("matrixSortSelect").addEventListener("change", renderAssetMatrix);
@@ -372,7 +402,15 @@ function renderAssetList() {
   const q = $("assetSearch").value.trim().toLowerCase();
   const filtered = state.assets.filter((a) => {
     if (state.chartMarketFilter !== "ALL" && a.market !== state.chartMarketFilter) return false;
-    if (q && !a.name.toLowerCase().includes(q) && !a.symbol.toLowerCase().includes(q)) return false;
+    if (state.chartThemeFilter !== "ALL" && a.theme !== state.chartThemeFilter) return false;
+    if (
+      q &&
+      !a.name.toLowerCase().includes(q) &&
+      !a.symbol.toLowerCase().includes(q) &&
+      !(a.theme || "").toLowerCase().includes(q)
+    ) {
+      return false;
+    }
     return true;
   });
 
@@ -382,7 +420,7 @@ function renderAssetList() {
       <div class="asset-item ${a.symbol === state.selectedSymbol ? "active" : ""}" data-sym="${a.symbol}">
         <div>
           <div class="asset-item-name">${a.name}</div>
-          <div class="asset-item-sym">${a.symbol}</div>
+          <div class="asset-item-sym">${a.symbol} · ${a.theme || ""}</div>
         </div>
         <span class="mkt-tag mkt-${a.market}">${a.market}</span>
       </div>`
@@ -768,21 +806,21 @@ function renderResearchViews() {
   const { recommendations, strategies } = state.researchData;
   const mkt = state.researchMarket;
   const scopeNames = {
-    ALL: "전체 150종목",
-    KOSPI: "코스피 50종목",
-    KOSDAQ: "코스닥 50종목",
-    US: "미국주식 30종목",
-    CRYPTO: "코인 20종목",
+    ALL: "전체 250종목",
+    KOSPI: "코스피 70종목",
+    KOSDAQ: "코스닥 70종목",
+    US: "미국주식 80종목",
+    CRYPTO: "코인 30종목",
   };
   $("researchScopeLabel").textContent = `${scopeNames[mkt] || mkt} 기준 (왕복 수수료 0.2% 반영)`;
 
   // Recommendation cards
   const cardDefs = [
-    { key: "ALL", title: "🏆 전체 150종목 최적", highlight: true },
-    { key: "KOSPI", title: "🇰🇷 코스피 50 최적" },
-    { key: "KOSDAQ", title: "🚀 코스닥 50 최적" },
-    { key: "US", title: "🇺🇸 미국 30 최적" },
-    { key: "CRYPTO", title: "🪙 코인 20 최적" },
+    { key: "ALL", title: "🏆 전체 250종목 최적", highlight: true },
+    { key: "KOSPI", title: "🇰🇷 코스피 70 최적" },
+    { key: "KOSDAQ", title: "🚀 코스닥 70 최적" },
+    { key: "US", title: "🇺🇸 미국 80 최적" },
+    { key: "CRYPTO", title: "🪙 코인 30 최적" },
   ];
   $("recommendationCards").innerHTML = cardDefs
     .map((c) => {
@@ -914,7 +952,51 @@ function renderResearchViews() {
     b.addEventListener("click", () => applyStrategyToScanner(b.dataset.sid));
   });
 
+  renderThemeSummary();
   renderAssetMatrix();
+}
+
+function renderThemeSummary() {
+  if (!state.researchData) return;
+  const sid = state.matrixStrategy;
+  const strat = state.researchData.strategies.find((s) => s.id === sid) || state.researchData.strategies[0];
+  if (!strat) return;
+  const th2 = strat.periods["2Y"]?.THEMES || {};
+  const th4 = strat.periods["4Y"]?.THEMES || {};
+  const th6 = strat.periods["6Y"]?.THEMES || {};
+  $("themeSummaryStrategyLabel").textContent = `${strat.id}. ${strat.name} 기준 (행 클릭 시 아래 종목표 필터)`;
+
+  const rows = state.themes
+    .map((th) => ({ th, p2: th2[th.id], p4: th4[th.id], p6: th6[th.id] }))
+    .filter((r) => r.p6 && r.p6.count > 0)
+    .sort((a, b) => b.p6.avg_return_pct - a.p6.avg_return_pct);
+
+  $("themeSummaryBody").innerHTML = rows
+    .map(
+      ({ th, p2, p4, p6 }) => `
+      <tr style="cursor:pointer" data-theme="${th.id}">
+        <td><b>${th.label}</b></td>
+        <td class="num muted">${p6.count}개</td>
+        <td class="num">${p2.avg_win_rate_pct}%</td>
+        <td class="num ${pctClass(p2.avg_return_pct)}">${fmtPct(p2.avg_return_pct)}</td>
+        <td class="num">${p4.avg_win_rate_pct}%</td>
+        <td class="num ${pctClass(p4.avg_return_pct)}">${fmtPct(p4.avg_return_pct)}</td>
+        <td class="num"><b>${p6.avg_win_rate_pct}%</b></td>
+        <td class="num ${pctClass(p6.avg_return_pct)}"><b>${fmtPct(p6.avg_return_pct)}</b></td>
+        <td class="num muted">${fmtPct(p6.avg_bnh_pct)}</td>
+        <td class="num neg">${p6.avg_mdd_pct}%</td>
+        <td class="num"><b>${p6.avg_profit_factor}</b></td>
+      </tr>`
+    )
+    .join("");
+
+  $("themeSummaryBody").querySelectorAll("tr").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      state.matrixThemeFilter = tr.dataset.theme;
+      $("matrixThemeFilter").value = tr.dataset.theme;
+      renderAssetMatrix();
+    });
+  });
 }
 
 function renderAssetMatrix() {
@@ -924,8 +1006,9 @@ function renderAssetMatrix() {
   if (!bucket) return;
 
   const mkt = state.researchMarket;
+  const thf = state.matrixThemeFilter;
   const rows = state.assets
-    .filter((a) => mkt === "ALL" || a.market === mkt)
+    .filter((a) => (mkt === "ALL" || a.market === mkt) && (thf === "ALL" || a.theme === thf))
     .map((a) => ({
       asset: a,
       y2: bucket["2Y"]?.[a.symbol],
@@ -948,7 +1031,7 @@ function renderAssetMatrix() {
       ({ asset, y2, y4, y6 }) => `
       <tr data-sym="${asset.symbol}">
         <td><b>${asset.name}</b> <span class="muted">${asset.symbol}</span></td>
-        <td><span class="mkt-tag mkt-${asset.market}">${asset.market}</span></td>
+        <td><span class="mkt-tag mkt-${asset.market}">${asset.market}</span><span class="theme-tag">${asset.theme || ""}</span></td>
         <td class="num">${y2 ? y2.win_rate_pct + "%" : "-"}</td>
         <td class="num ${y2 ? pctClass(y2.total_return_pct) : ""}">${y2 ? fmtPct(y2.total_return_pct) : "-"}</td>
         <td class="num">${y4 ? y4.win_rate_pct + "%" : "-"}</td>
@@ -1101,50 +1184,86 @@ async function loadScanner() {
       });
       data = await apiFetch(`/api/scanner?${qs}`);
     }
-
-    $("scannerKpis").innerHTML = `
-      <div class="kpi-box"><div><div class="muted">🟢 신규 매수</div><div class="muted">${data.strategy_name}</div></div><div class="kpi-num pos">${data.counts.BUY}</div></div>
-      <div class="kpi-box"><div><div class="muted">🔴 청산 매도</div><div class="muted">최근 2일 이탈</div></div><div class="kpi-num neg">${data.counts.SELL}</div></div>
-      <div class="kpi-box"><div><div class="muted">🟡 돌파 임박</div><div class="muted">추세선 ${$("nearPctInput").value}% 이내</div></div><div class="kpi-num" style="color:#ffd54f">${data.counts.NEAR}</div></div>
-      <div class="kpi-box"><div><div class="muted">🔵 보유 / ⚪ 관망</div><div class="muted">${data.scanned_at}</div></div><div class="kpi-num" style="color:#82b1ff">${data.counts.HOLD}<span style="font-size:15px;color:#8b9bb4"> / ${data.counts.WATCH}</span></div></div>
-    `;
-
-    const badgeText = { BUY: "🟢 매수", SELL: "🔴 매도", NEAR: "🟡 임박", HOLD: "🔵 보유", WATCH: "⚪ 관망" };
-    $("scannerTableBody").innerHTML = data.items
-      .map(
-        (it) => `
-        <tr data-sym="${it.symbol}">
-          <td><span class="sig-badge sig-${it.signal}">${badgeText[it.signal]}</span></td>
-          <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
-          <td><span class="mkt-tag mkt-${it.market}">${it.market}</span></td>
-          <td class="num">${fmtPrice(it.close, it.currency)}</td>
-          <td class="num ${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</td>
-          <td>
-            <span class="${it.above_ma20 ? "pos" : "neg"}">20${it.above_ma20 ? "▲" : "▼"}</span> ·
-            <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span>
-            <span class="${it.ma200_state === "up" ? "pos" : it.ma200_state === "flat" ? "" : "neg"}" style="${it.ma200_state === "flat" ? "color:#ffd54f" : ""}">
-              ${it.ma200_state === "up" ? "↗" : it.ma200_state === "flat" ? "→" : "↘"}
-            </span>
-          </td>
-          <td class="num ${it.dist_short_upper_pct !== null && it.dist_short_upper_pct <= 0 ? "pos" : "muted"}">
-            ${it.dist_short_upper_pct !== null ? fmtPct(it.dist_short_upper_pct) : "-"}
-          </td>
-          <td class="num ${it.dist_long_upper_pct !== null && it.dist_long_upper_pct <= 0 ? "pos" : "muted"}">
-            ${it.dist_long_upper_pct !== null ? fmtPct(it.dist_long_upper_pct) : "-"}
-          </td>
-          <td class="muted">${it.reason}</td>
-        </tr>`
-      )
-      .join("");
-
-    $("scannerTableBody").querySelectorAll("tr").forEach((tr) => {
-      tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, state.scannerStrategy));
-    });
+    state.scannerData = data;
+    renderScannerView();
   } catch (err) {
     showToast("스캐너 오류: " + err.message, 4500);
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
   }
+}
+
+function renderScannerView() {
+  const data = state.scannerData;
+  if (!data) return;
+
+  $("scannerKpis").innerHTML = `
+    <div class="kpi-box"><div><div class="muted">🟢 신규 매수</div><div class="muted">${data.strategy_name}</div></div><div class="kpi-num pos">${data.counts.BUY}</div></div>
+    <div class="kpi-box"><div><div class="muted">🔴 청산 매도</div><div class="muted">최근 2일 이탈</div></div><div class="kpi-num neg">${data.counts.SELL}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟡 돌파 임박</div><div class="muted">추세선 ${$("nearPctInput").value}% 이내</div></div><div class="kpi-num" style="color:#ffd54f">${data.counts.NEAR}</div></div>
+    <div class="kpi-box"><div><div class="muted">🔵 보유 / ⚪ 관망</div><div class="muted">${data.scanned_at}</div></div><div class="kpi-num" style="color:#82b1ff">${data.counts.HOLD}<span style="font-size:15px;color:#8b9bb4"> / ${data.counts.WATCH}</span></div></div>
+  `;
+
+  // Theme heat bar
+  const themes = data.themes || [];
+  $("scannerThemeBar").innerHTML = themes
+    .map(
+      (th) => `
+      <div class="theme-heat-card ${state.scannerThemeFilter === th.id ? "active" : ""}" data-theme="${th.id}">
+        <div class="theme-heat-name">${th.label}</div>
+        <div class="theme-heat-meta">
+          <span class="pos">매수 ${th.BUY}</span> ·
+          <span style="color:#ffd54f">임박 ${th.NEAR}</span> ·
+          <span class="neg">매도 ${th.SELL}</span><br/>
+          MA200 강세 <b>${th.ma200_ok_pct}%</b> (${th.total}종목)
+        </div>
+      </div>`
+    )
+    .join("");
+
+  $("scannerThemeBar").querySelectorAll(".theme-heat-card").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.scannerThemeFilter = state.scannerThemeFilter === el.dataset.theme ? "ALL" : el.dataset.theme;
+      $("scannerThemeFilter").value = state.scannerThemeFilter;
+      renderScannerView();
+    });
+  });
+
+  const filteredItems = data.items.filter(
+    (it) => state.scannerThemeFilter === "ALL" || it.theme === state.scannerThemeFilter
+  );
+
+  const badgeText = { BUY: "🟢 매수", SELL: "🔴 매도", NEAR: "🟡 임박", HOLD: "🔵 보유", WATCH: "⚪ 관망" };
+  $("scannerTableBody").innerHTML = filteredItems
+    .map(
+      (it) => `
+      <tr data-sym="${it.symbol}">
+        <td><span class="sig-badge sig-${it.signal}">${badgeText[it.signal]}</span></td>
+        <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
+        <td><span class="mkt-tag mkt-${it.market}">${it.market}</span><span class="theme-tag">${it.theme || ""}</span></td>
+        <td class="num">${fmtPrice(it.close, it.currency)}</td>
+        <td class="num ${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</td>
+        <td>
+          <span class="${it.above_ma20 ? "pos" : "neg"}">20${it.above_ma20 ? "▲" : "▼"}</span> ·
+          <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span>
+          <span class="${it.ma200_state === "up" ? "pos" : it.ma200_state === "flat" ? "" : "neg"}" style="${it.ma200_state === "flat" ? "color:#ffd54f" : ""}">
+            ${it.ma200_state === "up" ? "↗" : it.ma200_state === "flat" ? "→" : "↘"}
+          </span>
+        </td>
+        <td class="num ${it.dist_short_upper_pct !== null && it.dist_short_upper_pct <= 0 ? "pos" : "muted"}">
+          ${it.dist_short_upper_pct !== null ? fmtPct(it.dist_short_upper_pct) : "-"}
+        </td>
+        <td class="num ${it.dist_long_upper_pct !== null && it.dist_long_upper_pct <= 0 ? "pos" : "muted"}">
+          ${it.dist_long_upper_pct !== null ? fmtPct(it.dist_long_upper_pct) : "-"}
+        </td>
+        <td class="muted">${it.reason}</td>
+      </tr>`
+    )
+    .join("");
+
+  $("scannerTableBody").querySelectorAll("tr").forEach((tr) => {
+    tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, state.scannerStrategy === "AUTO_BEST" ? "S3" : state.scannerStrategy));
+  });
 }
 
 async function saveUserSettings() {
