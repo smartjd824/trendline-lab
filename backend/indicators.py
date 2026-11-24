@@ -110,6 +110,35 @@ def compute_indicator_frame(
     out["ma200_chg10_pct"] = (out["ma200"] / out["ma200"].shift(10) - 1.0) * 100.0
     out["ma200_chg5_pct"] = (out["ma200"] / out["ma200"].shift(5) - 1.0) * 100.0
 
+    # Wilder RSI(14) — exact TradingView formula
+    delta = pd.Series(close).diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1.0 / 14.0, adjust=False, min_periods=14).mean()
+    avg_loss = loss.ewm(alpha=1.0 / 14.0, adjust=False, min_periods=14).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    out["rsi14"] = rsi.fillna(100.0).where(avg_loss > 0, np.where(avg_gain > 0, 100.0, 50.0))
+    out.loc[:13, "rsi14"] = np.nan
+
+    # Weekly 20-week MA (strictly causal: resampled weekly close shifted/aligned on date_dt)
+    if "date_dt" in out.columns:
+        s_close = pd.Series(close, index=pd.DatetimeIndex(out["date_dt"]))
+        w_close = s_close.resample("W-FRI").last().dropna()
+        w_ma20 = w_close.rolling(20, min_periods=15).mean()
+        w_ma20_slope = w_ma20.diff(2)
+        # Reindex causally to daily timestamps via forward-fill (no future leak)
+        daily_wma20 = w_ma20.reindex(s_close.index, method="ffill").to_numpy(dtype=np.float64)
+        daily_wma20_slope = w_ma20_slope.reindex(s_close.index, method="ffill").to_numpy(dtype=np.float64)
+        out["wma20"] = daily_wma20
+        out["wma20_slope"] = daily_wma20_slope
+    else:
+        out["wma20"] = pd.Series(close).rolling(100, min_periods=75).mean()
+        out["wma20_slope"] = out["wma20"].diff(10)
+
+    # Recent 180-bar rolling high for target calculation
+    out["high180"] = pd.Series(high).rolling(180, min_periods=30).max()
+
     is_log = scale_mode == "log"
     upper_src = close if price_source == "body" else high
     lower_src = close if price_source == "body" else low

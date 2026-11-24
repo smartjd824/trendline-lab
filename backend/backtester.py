@@ -115,7 +115,7 @@ _IND_CACHE: dict[tuple, pd.DataFrame] = {}
 
 def _disk_cache_path(symbol: str, short_w: int, long_w: int, price_src: str, scale: str, last_date: str, rows: int):
     safe_sym = symbol.replace("/", "_").replace(".", "_")
-    return IND_CACHE_DIR / f"{safe_sym}_{short_w}_{long_w}_{price_src}_{scale}_{last_date}_{rows}.pkl"
+    return IND_CACHE_DIR / f"v2_{safe_sym}_{short_w}_{long_w}_{price_src}_{scale}_{last_date}_{rows}.pkl"
 
 
 def get_cached_indicators(

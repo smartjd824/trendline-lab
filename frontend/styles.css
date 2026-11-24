@@ -831,6 +831,169 @@ body {
   text-align: center;
 }
 
+.nav-count {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(41, 121, 255, 0.3);
+  color: #90caf9;
+  font-size: 11px;
+}
+
+.thermo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.thermo-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+
+.thermo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.thermo-bar {
+  height: 8px;
+  background: #1a2333;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.thermo-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.thermo-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.portfolio-alert-banner {
+  background: linear-gradient(135deg, rgba(239, 83, 80, 0.18), rgba(255, 152, 0, 0.14));
+  border: 1px solid rgba(239, 83, 80, 0.55);
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: #ffcdd2;
+  font-weight: 600;
+}
+
+.portfolio-alert-banner.hidden {
+  display: none;
+}
+
+.portfolio-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.trade-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.tp-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.tp-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tp-val {
+  font-size: 14.5px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.tp-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.star-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: #55657d;
+  padding: 2px 4px;
+}
+
+.star-btn.starred {
+  color: #ffd54f;
+}
+
+.delta-new {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  background: rgba(41, 121, 255, 0.25);
+  color: #82b1ff;
+  margin-left: 4px;
+}
+
+.delta-up { color: #69f0ae; font-size: 10.5px; font-weight: 700; margin-left: 4px; }
+.delta-down { color: #ff8a80; font-size: 10.5px; font-weight: 700; margin-left: 4px; }
+
+.rsi-oversold {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(0, 229, 255, 0.16);
+  color: #40e0ff;
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.rsi-dip {
+  color: #80cbc4;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.rsi-overbought {
+  color: #ffab40;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.hold-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(41, 121, 255, 0.24);
+  color: #90caf9;
+  border: 1px solid rgba(41, 121, 255, 0.5);
+  margin-left: 4px;
+}
+
 .rating-kpis {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -969,16 +1132,17 @@ body {
   .chart-workspace { grid-template-columns: 1fr; }
   .asset-sidebar { height: 220px; }
   .chart-bottom-grid, .charts-two-col, .scanner-grid { grid-template-columns: 1fr; }
-  .rec-grid, .scanner-kpis, .rating-kpis { grid-template-columns: repeat(2, 1fr); }
+  .rec-grid, .scanner-kpis, .rating-kpis, .thermo-grid { grid-template-columns: repeat(2, 1fr); }
+  .trade-plan-grid { grid-template-columns: repeat(2, 1fr); }
   .theme-heat-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 720px) {
   .topbar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
-  .tabs { justify-content: space-between; }
-  .tab-btn { flex: 1; padding: 7px 6px; font-size: 12px; }
+  .tabs { justify-content: space-between; overflow-x: auto; }
+  .tab-btn { flex: 1; padding: 7px 6px; font-size: 11.5px; white-space: nowrap; }
   .topbar-actions { justify-content: space-between; }
   .tv-chart-container { height: 340px; }
-  .rec-grid, .scanner-kpis { grid-template-columns: 1fr 1fr; }
+  .rec-grid, .scanner-kpis, .rating-kpis, .thermo-grid { grid-template-columns: 1fr 1fr; }
   .mini-kpi-grid { grid-template-columns: 1fr; }
 }

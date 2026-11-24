@@ -33,8 +33,14 @@ const state = {
   top30MarketFilter: "ALL",
   top30ThemeFilter: "ALL",
   top30RatingFilter: "ALL",
+  top30OversoldOnly: false,
+  top30RisingsOnly: false,
+  scannerOversoldOnly: false,
   matrixThemeFilter: "ALL",
   scannerThemeFilter: "ALL",
+  myHoldings: [], // [{ symbol, avgPrice, qty, buyDate, customStop }]
+  myWatchlist: [], // [symbol, ...]
+  scannerMap: {}, // symbol -> scanner item
   researchData: null,
   exitCompareData: null,
   scannerData: null,
@@ -176,6 +182,8 @@ async function init() {
     populateStrategySelects();
     populateExitSelects();
     populateThemeSelects();
+    loadUserPortfolioStorage();
+    populatePortfolioSymbolSelect();
     if (!IS_STATIC) {
       populateSettingsForm(meta.settings);
       updateCacheBadge(meta.cache);
@@ -191,10 +199,170 @@ async function init() {
 
     // Load Top 30 leaderboard first since it is the default landing tab
     await loadScanner();
-    renderTop30Board();
+    renderPortfolioTab();
   } catch (err) {
     showToast("초기화 오류: " + err.message, 5000);
   }
+}
+
+/* ==================== PORTFOLIO & WATCHLIST STORAGE ==================== */
+const HOLDINGS_KEY = "tlql_holdings_v1";
+const WATCHLIST_KEY = "tlql_watchlist_v1";
+
+function loadUserPortfolioStorage() {
+  try {
+    state.myHoldings = JSON.parse(localStorage.getItem(HOLDINGS_KEY) || "[]");
+    if (!Array.isArray(state.myHoldings)) state.myHoldings = [];
+  } catch (_) {
+    state.myHoldings = [];
+  }
+  try {
+    state.myWatchlist = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
+    if (!Array.isArray(state.myWatchlist)) state.myWatchlist = [];
+  } catch (_) {
+    state.myWatchlist = [];
+  }
+  updateNavHoldCount();
+}
+
+function saveUserPortfolioStorage() {
+  localStorage.setItem(HOLDINGS_KEY, JSON.stringify(state.myHoldings));
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(state.myWatchlist));
+  updateNavHoldCount();
+}
+
+function updateNavHoldCount() {
+  if ($("navHoldCount")) $("navHoldCount").textContent = String(state.myHoldings.length);
+}
+
+function getHolding(symbol) {
+  return state.myHoldings.find((h) => h.symbol === symbol) || null;
+}
+
+function isStarred(symbol) {
+  return state.myWatchlist.includes(symbol);
+}
+
+function toggleStar(symbol) {
+  if (isStarred(symbol)) {
+    state.myWatchlist = state.myWatchlist.filter((s) => s !== symbol);
+  } else {
+    state.myWatchlist.push(symbol);
+  }
+  saveUserPortfolioStorage();
+  updateChartPortfolioButtons();
+  renderTop30Board();
+  renderPortfolioTab();
+  renderScannerView();
+}
+
+function populatePortfolioSymbolSelect() {
+  const sel = $("pfSymbolSelect");
+  if (!sel) return;
+  sel.innerHTML = state.assets
+    .map((a) => `<option value="${a.symbol}">[${a.market}] ${a.name} (${a.symbol}) · ${a.theme}</option>`)
+    .join("");
+}
+
+function evaluateHoldingStatus(h, it) {
+  if (!it) {
+    return {
+      code: "HOLD_OK",
+      label: "🔵 보유중",
+      badgeClass: "sig-HOLD",
+      detail: "시세 불러오는 중",
+      pnlPct: 0,
+      pnlAmt: 0,
+      dayAmt: 0,
+      stopLoss: h.customStop || 0,
+      target1: 0,
+      alertLevel: 0,
+    };
+  }
+  const avg = Number(h.avgPrice) || it.close;
+  const qty = Number(h.qty) || 0;
+  const pnlPct = avg > 0 ? ((it.close / avg) - 1) * 100 : 0;
+  const pnlAmt = (it.close - avg) * qty;
+  const prevClose = it.close / (1 + (it.change_pct || 0) / 100);
+  const dayAmt = (it.close - prevClose) * qty;
+  const tp = it.trade_plan || {};
+  const stopLoss = h.customStop && Number(h.customStop) > 0 ? Number(h.customStop) : (tp.stop_loss || avg * 0.92);
+  const target1 = tp.target_1 || avg * 1.18;
+
+  // Personalized sell / hold rules strictly tied to user's actual held stock
+  if (it.close <= stopLoss) {
+    return {
+      code: "SELL_STOP",
+      label: "🔴 손절·매도 경보",
+      badgeClass: "rate-SELL_WARN",
+      detail: `손절가(${fmtPrice(stopLoss, it.currency)}) 하회`,
+      pnlPct, pnlAmt, dayAmt, stopLoss, target1, alertLevel: 3,
+    };
+  }
+  if (it.signal === "SELL" || (!it.above_ma200 && !it.above_ma20)) {
+    return {
+      code: "SELL_TREND",
+      label: "🔴 추세이탈 매도권고",
+      badgeClass: "rate-SELL_WARN",
+      detail: it.signal === "SELL" ? it.reason : "MA200·MA20 모두 하회",
+      pnlPct, pnlAmt, dayAmt, stopLoss, target1, alertLevel: 3,
+    };
+  }
+  if (!it.above_ma20 && pnlPct < 0) {
+    return {
+      code: "SELL_WARN",
+      label: "🟠 약세·매도검토",
+      badgeClass: "rate-WATCH_BUY",
+      detail: "MA20 이탈 + 손실 구간 (손절선 주시)",
+      pnlPct, pnlAmt, dayAmt, stopLoss, target1, alertLevel: 2,
+    };
+  }
+  if ((it.close >= target1 && pnlPct >= 10) || (it.rsi14 !== null && it.rsi14 >= 76 && pnlPct >= 12)) {
+    return {
+      code: "TAKE_PROFIT",
+      label: "🟣 분할 익절 검토",
+      badgeClass: "sig-HOLD",
+      detail: it.rsi14 >= 76 ? `RSI 과열(${it.rsi14}) + 수익 +${pnlPct.toFixed(1)}%` : `1차 목표가 도달 (+${pnlPct.toFixed(1)}%)`,
+      pnlPct, pnlAmt, dayAmt, stopLoss, target1, alertLevel: 1,
+    };
+  }
+  return {
+    code: "HOLD_OK",
+    label: "🟢 정상 보유 유지",
+    badgeClass: "rate-BUY",
+    detail: it.above_ma200 ? "MA200 위 추세 유지" : "손절선 위 보유 유지",
+    pnlPct, pnlAmt, dayAmt, stopLoss, target1, alertLevel: 0,
+  };
+}
+
+function getDisplayRating(it) {
+  // Personalized rule: Hold/Sell badges ONLY for user's own holdings!
+  // Non-held stocks show clean buy/oversold/watch ratings.
+  const h = getHolding(it.symbol);
+  if (h) {
+    const st = evaluateHoldingStatus(h, it);
+    return {
+      badgeClass: st.badgeClass,
+      label: `${st.label} (${st.pnlPct >= 0 ? "+" : ""}${st.pnlPct.toFixed(1)}%)`,
+      isHeld: true,
+    };
+  }
+  if (it.rating === "STRONG_BUY") return { badgeClass: "rate-STRONG_BUY", label: "🔥 강력 매수", isHeld: false };
+  if (it.rating === "BUY") return { badgeClass: "rate-BUY", label: "🟢 매수", isHeld: false };
+  if (it.rating === "WATCH_BUY") return { badgeClass: "rate-WATCH_BUY", label: "🟡 매수 관심", isHeld: false };
+  if (it.rsi14 !== null && it.rsi14 <= 36) return { badgeClass: "rsi-oversold", label: "💎 과매도 주시", isHeld: false };
+  return { badgeClass: "rate-HOLD_WATCH", label: "⚪ 관망", isHeld: false };
+}
+
+function renderRsiBadge(it) {
+  const rsi = it.rsi14;
+  const wk = it.weekly_bull ? `<span class="pos" title="주봉 20주선 상승">주↗</span>` : `<span class="neg" title="주봉 20주선 약세">주↘</span>`;
+  if (rsi === null || rsi === undefined) return `- ${wk}`;
+  if (rsi <= 30) return `<span class="rsi-oversold">💎 ${rsi.toFixed(1)}</span> ${wk}`;
+  if (rsi <= 36) return `<span class="rsi-oversold">💠 ${rsi.toFixed(1)}</span> ${wk}`;
+  if (rsi <= 46) return `<span class="rsi-dip">${rsi.toFixed(1)}</span> ${wk}`;
+  if (rsi >= 75) return `<span class="rsi-overbought">⚠️ ${rsi.toFixed(1)}</span> ${wk}`;
+  return `<span class="muted">${rsi.toFixed(1)}</span> ${wk}`;
 }
 
 function updateCacheBadge(cache) {
@@ -273,6 +441,9 @@ function bindEvents() {
       if (btn.dataset.tab === "top30") {
         if (!state.scannerData) await loadScanner();
         renderTop30Board();
+      } else if (btn.dataset.tab === "portfolio") {
+        if (!state.scannerData) await loadScanner();
+        renderPortfolioTab();
       } else if (btn.dataset.tab === "research" && !state.researchData) {
         await loadResearch(false);
         await loadExitComparison();
@@ -323,6 +494,34 @@ function bindEvents() {
     state.top30RatingFilter = e.target.value;
     renderTop30Board();
   });
+  $("top30OversoldOnly").addEventListener("change", (e) => {
+    state.top30OversoldOnly = e.target.checked;
+    renderTop30Board();
+  });
+  $("top30RisingsOnly").addEventListener("change", (e) => {
+    state.top30RisingsOnly = e.target.checked;
+    renderTop30Board();
+  });
+  $("scannerOversoldOnly").addEventListener("change", (e) => {
+    state.scannerOversoldOnly = e.target.checked;
+    renderScannerView();
+  });
+
+  // Portfolio & Chart buttons
+  $("pfAddBtn").addEventListener("click", handleAddHolding);
+  $("exportPortfolioBtn").addEventListener("click", exportPortfolioJson);
+  $("importPortfolioBtn").addEventListener("click", importPortfolioJson);
+  $("chartStarBtn").addEventListener("click", () => toggleStar(state.selectedSymbol));
+  $("chartAddHoldingBtn").addEventListener("click", () => {
+    const sym = state.selectedSymbol;
+    const it = state.scannerMap[sym];
+    $("pfSymbolSelect").value = sym;
+    if (it) $("pfAvgPrice").value = it.close;
+    document.querySelector('.tab-btn[data-tab="portfolio"]').click();
+    $("pfAvgPrice").focus();
+  });
+  $("calcCapitalInput").addEventListener("input", renderTradePlanCard);
+  $("calcRiskPctInput").addEventListener("input", renderTradePlanCard);
   $("chartMarketPills").addEventListener("click", (e) => {
     if (!e.target.classList.contains("pill")) return;
     $("chartMarketPills").querySelectorAll(".pill").forEach((p) => p.classList.remove("active"));
@@ -503,6 +702,8 @@ async function loadChart(symbol) {
     }
     state.chartPayload = data;
     renderTradingViewChart(data);
+    updateChartPortfolioButtons();
+    renderTradePlanCard();
     renderSingleBacktestPanels(data);
   } catch (err) {
     showToast("차트 로딩 실패: " + err.message, 4500);
@@ -584,6 +785,39 @@ function renderTradingViewChart(data) {
   };
 
   seriesMap = { candleSeries, ma20Series, ma200Series };
+
+  // Draw Stop-Loss & Target 1 price lines on chart from scanner trade plan
+  const scanItem = state.scannerMap[asset.symbol];
+  if (scanItem && scanItem.trade_plan) {
+    const tp = scanItem.trade_plan;
+    candleSeries.createPriceLine({
+      price: tp.stop_loss,
+      color: "#ef5350",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: `손절 (${tp.stop_basis})`,
+    });
+    candleSeries.createPriceLine({
+      price: tp.target_1,
+      color: "#00e676",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: `1차목표 (1:${tp.rr_ratio})`,
+    });
+  }
+  const myH = getHolding(asset.symbol);
+  if (myH && Number(myH.avgPrice) > 0) {
+    candleSeries.createPriceLine({
+      price: Number(myH.avgPrice),
+      color: "#ffd54f",
+      lineWidth: 2,
+      lineStyle: 0,
+      axisLabelVisible: true,
+      title: "내 매수가",
+    });
+  }
   Object.entries(lineConfigs).forEach(([key, cfg]) => {
     const s = tvChart.addLineSeries({
       ...cfg,
@@ -1217,13 +1451,86 @@ async function loadScanner() {
       data = await apiFetch(`/api/scanner?${qs}`);
     }
     state.scannerData = data;
+    state.scannerMap = {};
+    (data.items || []).forEach((it) => {
+      state.scannerMap[it.symbol] = it;
+    });
     renderTop30Board();
+    renderPortfolioTab();
     renderScannerView();
+    if (state.chartPayload) renderTradePlanCard();
   } catch (err) {
     showToast("스캐너 오류: " + err.message, 4500);
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+function updateChartPortfolioButtons() {
+  const sym = state.selectedSymbol;
+  if ($("chartStarBtn")) {
+    const starred = isStarred(sym);
+    $("chartStarBtn").textContent = starred ? "★ 관심중" : "☆ 관심";
+  }
+  if ($("chartAddHoldingBtn")) {
+    const h = getHolding(sym);
+    $("chartAddHoldingBtn").textContent = h ? "💼 보유 수정" : "💼 보유 등록";
+  }
+}
+
+function renderTradePlanCard() {
+  const box = $("tradePlanGrid");
+  if (!box || !state.chartPayload) return;
+  const asset = state.chartPayload.asset;
+  const it = state.scannerMap[asset.symbol];
+  if (!it || !it.trade_plan) {
+    box.innerHTML = `<div class="muted">매매 계획 데이터를 계산 중입니다...</div>`;
+    return;
+  }
+  const tp = it.trade_plan;
+  const cur = asset.currency;
+  const cap = Number($("calcCapitalInput").value) || (cur === "KRW" ? 10000000 : 10000);
+  const maxRiskPct = Number($("calcRiskPctInput").value) || 2.0;
+  const maxLossBudget = cap * (maxRiskPct / 100);
+  const riskPerUnit = Math.max(tp.entry_price - tp.stop_loss, tp.entry_price * 0.01);
+  const rawQty = maxLossBudget / riskPerUnit;
+  const recQty = cur === "KRW" ? Math.max(1, Math.floor(rawQty)) : Number(rawQty.toFixed(asset.market === "CRYPTO" ? 4 : 2));
+  const recInvest = recQty * tp.entry_price;
+  const expGain = recQty * (tp.target_1 - tp.entry_price);
+  const disp = getDisplayRating(it);
+
+  box.innerHTML = `
+    <div class="tp-box">
+      <div class="tp-label">현재가 · 의견</div>
+      <div class="tp-val">${fmtPrice(tp.entry_price, cur)}</div>
+      <div class="tp-sub"><span class="rate-badge ${disp.badgeClass}" style="font-size:10px;padding:1px 6px;">${disp.label}</span></div>
+    </div>
+    <div class="tp-box">
+      <div class="tp-label">자동 손절가 (${tp.stop_basis})</div>
+      <div class="tp-val neg">${fmtPrice(tp.stop_loss, cur)}</div>
+      <div class="tp-sub">손절폭 -${tp.risk_pct}%</div>
+    </div>
+    <div class="tp-box">
+      <div class="tp-label">1차 목표가 (${tp.t1_basis})</div>
+      <div class="tp-val pos">${fmtPrice(tp.target_1, cur)}</div>
+      <div class="tp-sub">예상 +${tp.upside_t1_pct}% · 2차 ${fmtPrice(tp.target_2, cur)}</div>
+    </div>
+    <div class="tp-box">
+      <div class="tp-label">손익비 (R:R) · RSI</div>
+      <div class="tp-val" style="color:#82b1ff">1 : ${tp.rr_ratio}</div>
+      <div class="tp-sub">${renderRsiBadge(it)}</div>
+    </div>
+    <div class="tp-box">
+      <div class="tp-label">권장 매수 수량 (손실 ${maxRiskPct}%)</div>
+      <div class="tp-val">${recQty.toLocaleString()} ${asset.market === "CRYPTO" ? "개" : "주"}</div>
+      <div class="tp-sub">투입금 약 ${fmtPrice(recInvest, cur)}</div>
+    </div>
+    <div class="tp-box">
+      <div class="tp-label">1차 목표 시 예상 수익</div>
+      <div class="tp-val pos">+${fmtPrice(expGain, cur)}</div>
+      <div class="tp-sub">최대 손절 한도 -${fmtPrice(maxLossBudget, cur)}</div>
+    </div>
+  `;
 }
 
 function probBarColor(prob) {
@@ -1234,20 +1541,56 @@ function probBarColor(prob) {
   return "#ef5350";
 }
 
+function renderMarketThermometer(mr) {
+  const grid = $("marketThermometerGrid");
+  if (!grid || !mr) return;
+  const all = mr.ALL || {};
+  $("marketRegimeOverall").textContent = `전체 250종목 중 MA200 위 ${all.ma200_above_pct ?? 0}% · 💎 과매도 ${all.oversold_count ?? 0}종목`;
+
+  const defs = [
+    { key: "KOSPI", label: "🇰🇷 코스피 (70)" },
+    { key: "KOSDAQ", label: "🚀 코스닥 (70)" },
+    { key: "US", label: "🇺🇸 미국주식 (80)" },
+    { key: "CRYPTO", label: "🪙 코인 (30)" },
+  ];
+  grid.innerHTML = defs
+    .map((d) => {
+      const m = mr[d.key] || { ma200_above_pct: 0, ma200_bull_pct: 0, oversold_count: 0, regime_label: "-" };
+      const pct = m.ma200_above_pct || 0;
+      const color = pct >= 55 ? "#00e676" : pct >= 30 ? "#ffd54f" : "#ef5350";
+      return `
+        <div class="thermo-card">
+          <div class="thermo-head">
+            <span>${d.label}</span>
+            <span style="color:${color};font-size:11.5px;">${m.regime_label}</span>
+          </div>
+          <div class="thermo-bar"><div class="thermo-fill" style="width:${pct}%;background:${color}"></div></div>
+          <div class="thermo-sub">
+            <span>MA200 위 <b>${pct}%</b> (평평/상승 ${m.ma200_bull_pct}%)</span>
+            <span style="color:#40e0ff">💎과매도 ${m.oversold_count}</span>
+          </div>
+        </div>`;
+    })
+    .join("");
+}
+
 function renderTop30Board() {
   const data = state.scannerData;
   if (!data || !data.items) return;
 
+  renderMarketThermometer(data.market_regime);
+
   const rc = data.rating_counts || {};
+  const mySellAlerts = state.myHoldings.filter((h) => evaluateHoldingStatus(h, state.scannerMap[h.symbol]).alertLevel >= 2).length;
   $("top30RatingKpis").innerHTML = `
     <div class="kpi-box"><div><div class="muted">🔥 강력 매수</div><div class="muted">확률 75%↑ + PF≥1.2</div></div><div class="kpi-num" style="color:#ffab40">${rc.STRONG_BUY || 0}</div></div>
     <div class="kpi-box"><div><div class="muted">🟢 매수</div><div class="muted">확률 66~74%</div></div><div class="kpi-num pos">${rc.BUY || 0}</div></div>
     <div class="kpi-box"><div><div class="muted">🟡 매수 관심</div><div class="muted">확률 56~65%</div></div><div class="kpi-num" style="color:#ffd54f">${rc.WATCH_BUY || 0}</div></div>
-    <div class="kpi-box"><div><div class="muted">⚪ 관망</div><div class="muted">대기 / 조정</div></div><div class="kpi-num" style="color:#8b9bb4">${rc.HOLD_WATCH || 0}</div></div>
-    <div class="kpi-box"><div><div class="muted">🔴 매도 / 주의</div><div class="muted">이탈 / 약세</div></div><div class="kpi-num neg">${rc.SELL_WARN || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">💎 RSI 과매도</div><div class="muted">RSI ≤ 36 저점주목</div></div><div class="kpi-num" style="color:#40e0ff">${data.oversold_total || 0}</div></div>
+    <div class="kpi-box" style="cursor:pointer" onclick="document.querySelector('.tab-btn[data-tab=portfolio]').click()"><div><div class="muted">💼 내 보유종목</div><div class="muted">매도경보 ${mySellAlerts}건</div></div><div class="kpi-num ${mySellAlerts > 0 ? "neg" : ""}" style="${mySellAlerts === 0 ? "color:#82b1ff" : ""}">${state.myHoldings.length}</div></div>
   `;
 
-  $("top30UpdatedMeta").textContent = `기준: ${data.scanned_at} · ${data.strategy_name}`;
+  $("top30UpdatedMeta").textContent = `기준: ${data.scanned_at}`;
 
   const ratingOrder = { STRONG_BUY: 4, BUY: 3, WATCH_BUY: 2, HOLD_WATCH: 1, SELL_WARN: 0 };
   const minRating = state.top30RatingFilter === "ALL" ? -1 : (ratingOrder[state.top30RatingFilter] ?? -1);
@@ -1257,6 +1600,8 @@ function renderTop30Board() {
       if (state.top30MarketFilter !== "ALL" && it.market !== state.top30MarketFilter) return false;
       if (state.top30ThemeFilter !== "ALL" && it.theme !== state.top30ThemeFilter) return false;
       if ((ratingOrder[it.rating] ?? 0) < minRating) return false;
+      if (state.top30OversoldOnly && (it.rsi14 === null || it.rsi14 > 36)) return false;
+      if (state.top30RisingsOnly && !it.is_new_top30 && (it.prob_delta || 0) < 3 && (it.rank_delta || 0) < 3) return false;
       return true;
     })
     .sort((a, b) => (b.upside_prob - a.upside_prob) || (b.hist_pf_6y - a.hist_pf_6y) || (b.change_pct - a.change_pct))
@@ -1271,50 +1616,273 @@ function renderTop30Board() {
     .map((it, idx) => {
       const rank = idx + 1;
       const prob = Number(it.upside_prob || 0);
+      const tp = it.trade_plan || {};
+      const disp = getDisplayRating(it);
+      const deltaBadge = it.is_new_top30
+        ? `<span class="delta-new">NEW</span>`
+        : it.rank_delta > 0
+        ? `<span class="delta-up">▲${it.rank_delta}</span>`
+        : it.rank_delta < 0
+        ? `<span class="delta-down">▼${Math.abs(it.rank_delta)}</span>`
+        : "";
+      const probDeltaStr =
+        it.prob_delta > 0.4
+          ? `<div class="delta-up" style="margin:0">+${it.prob_delta.toFixed(1)}%p</div>`
+          : it.prob_delta < -0.4
+          ? `<div class="delta-down" style="margin:0">${it.prob_delta.toFixed(1)}%p</div>`
+          : "";
       const factorsHtml = (it.prob_factors || [])
         .map((f) => `<span class="factor-chip">${f}</span>`)
         .join("");
+      const star = isStarred(it.symbol);
       return `
         <tr data-sym="${it.symbol}">
-          <td class="num"><span class="rank-num ${rank <= 3 ? "rank-top3" : ""}">${rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : rank}</span></td>
-          <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
+          <td><button class="star-btn ${star ? "starred" : ""}" data-star="${it.symbol}">${star ? "★" : "☆"}</button></td>
+          <td class="num">
+            <span class="rank-num ${rank <= 3 ? "rank-top3" : ""}">${rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : rank}</span>${deltaBadge}
+          </td>
+          <td><b>${it.name}</b>${disp.isHeld ? `<span class="hold-tag">보유</span>` : ""} <div class="muted">${it.symbol}</div></td>
           <td><span class="mkt-tag mkt-${it.market}">${it.market}</span><span class="theme-tag">${it.theme || ""}</span></td>
           <td>
             <div class="prob-cell">
               <div class="prob-bar-track"><div class="prob-bar-fill" style="width:${prob}%;background:${probBarColor(prob)}"></div></div>
-              <span class="prob-num" style="color:${prob >= 68 ? "#69f0ae" : prob >= 58 ? "#ffd54f" : prob < 42 ? "#ff8a80" : "#c5d1e6"}">${prob.toFixed(1)}%</span>
+              <div style="text-align:right"><span class="prob-num" style="color:${prob >= 66 ? "#69f0ae" : prob >= 56 ? "#ffd54f" : prob < 42 ? "#ff8a80" : "#c5d1e6"}">${prob.toFixed(1)}%</span>${probDeltaStr}</div>
             </div>
           </td>
-          <td><span class="rate-badge rate-${it.rating}">${it.rating_label}</span></td>
-          <td class="num">${fmtPrice(it.close, it.currency)}</td>
-          <td class="num ${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</td>
-          <td>
-            <span class="${it.above_ma20 ? "pos" : "neg"}">20${it.above_ma20 ? "▲" : "▼"}</span> ·
-            <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span>
-            <span class="${it.ma200_state === "up" ? "pos" : it.ma200_state === "flat" ? "" : "neg"}" style="${it.ma200_state === "flat" ? "color:#ffd54f" : ""}">
-              ${it.ma200_state === "up" ? "↗" : it.ma200_state === "flat" ? "→" : "↘"}
-            </span>
+          <td><span class="rate-badge ${disp.badgeClass}">${disp.label}</span></td>
+          <td class="num"><div>${fmtPrice(it.close, it.currency)}</div><div class="${pctClass(it.change_pct)}" style="font-size:11px;">${fmtPct(it.change_pct)}</div></td>
+          <td style="font-size:11px;">
+            <div><span class="neg">손절 ${fmtPrice(tp.stop_loss, it.currency)}</span> (-${tp.risk_pct}%)</div>
+            <div><span class="pos">목표 ${fmtPrice(tp.target_1, it.currency)}</span> · <b>1:${tp.rr_ratio}</b></div>
           </td>
-          <td class="num muted">PF <b>${Number(it.hist_pf_6y || 0).toFixed(2)}</b> · ${Number(it.hist_wr_6y || 0).toFixed(0)}%</td>
+          <td>${renderRsiBadge(it)}</td>
           <td>${factorsHtml || `<span class="muted">${it.reason}</span>`}</td>
         </tr>`;
     })
     .join("");
 
+  $("top30TableBody").querySelectorAll("button[data-star]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleStar(btn.dataset.star);
+    });
+  });
   $("top30TableBody").querySelectorAll("tr").forEach((tr) => {
     tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, "S3"));
   });
+}
+
+/* ==================== MY PORTFOLIO & WATCHLIST TAB ==================== */
+function handleAddHolding() {
+  const sym = $("pfSymbolSelect").value;
+  const avgPrice = Number($("pfAvgPrice").value);
+  const qty = Number($("pfQty").value);
+  const buyDate = $("pfBuyDate").value || new Date().toISOString().slice(0, 10);
+  const customStop = $("pfCustomStop").value ? Number($("pfCustomStop").value) : null;
+
+  if (!sym || !(avgPrice > 0) || !(qty > 0)) {
+    showToast("종목, 평균 매수가, 수량을 올바르게 입력해 주세요.");
+    return;
+  }
+  const idx = state.myHoldings.findIndex((h) => h.symbol === sym);
+  const entry = { symbol: sym, avgPrice, qty, buyDate, customStop };
+  if (idx >= 0) {
+    state.myHoldings[idx] = entry;
+    showToast("보유종목 정보를 수정했습니다.");
+  } else {
+    state.myHoldings.push(entry);
+    showToast("내 보유종목에 등록되었습니다!");
+  }
+  saveUserPortfolioStorage();
+  $("pfAvgPrice").value = "";
+  $("pfQty").value = "";
+  $("pfCustomStop").value = "";
+  updateChartPortfolioButtons();
+  renderPortfolioTab();
+  renderTop30Board();
+  renderScannerView();
+}
+
+function removeHolding(sym) {
+  state.myHoldings = state.myHoldings.filter((h) => h.symbol !== sym);
+  saveUserPortfolioStorage();
+  updateChartPortfolioButtons();
+  renderPortfolioTab();
+  renderTop30Board();
+  renderScannerView();
+  showToast("보유종목에서 삭제했습니다.");
+}
+
+async function exportPortfolioJson() {
+  const blob = JSON.stringify({ holdings: state.myHoldings, watchlist: state.myWatchlist });
+  try {
+    await navigator.clipboard.writeText(blob);
+    showToast("보유종목·관심종목 백업 데이터가 클립보드에 복사되었습니다!");
+  } catch (_) {
+    prompt("아래 백업 텍스트를 복사해 보관하세요:", blob);
+  }
+}
+
+function importPortfolioJson() {
+  const raw = prompt("복사해 둔 백업 JSON 텍스트를 붙여넣어 주세요:");
+  if (!raw) return;
+  try {
+    const obj = JSON.parse(raw);
+    if (Array.isArray(obj.holdings)) state.myHoldings = obj.holdings;
+    if (Array.isArray(obj.watchlist)) state.myWatchlist = obj.watchlist;
+    saveUserPortfolioStorage();
+    renderPortfolioTab();
+    renderTop30Board();
+    renderScannerView();
+    showToast("보유종목·관심종목 복원 완료!");
+  } catch (err) {
+    showToast("백업 데이터 형식이 올바르지 않습니다: " + err.message);
+  }
+}
+
+function renderPortfolioTab() {
+  const tbody = $("portfolioTableBody");
+  const kpiWrap = $("portfolioKpis");
+  const banner = $("portfolioAlertBanner");
+  if (!tbody || !kpiWrap) return;
+
+  let krCost = 0, krVal = 0, krDay = 0;
+  let usCost = 0, usVal = 0, usDay = 0;
+  const sellAlerts = [];
+  const tpAlerts = [];
+
+  const evalRows = state.myHoldings.map((h) => {
+    const it = state.scannerMap[h.symbol];
+    const asset = state.assets.find((a) => a.symbol === h.symbol) || { name: h.symbol, market: "", theme: "", currency: "USD" };
+    const st = evaluateHoldingStatus(h, it);
+    const cost = h.avgPrice * h.qty;
+    const val = (it ? it.close : h.avgPrice) * h.qty;
+    if (asset.currency === "KRW") {
+      krCost += cost; krVal += val; krDay += st.dayAmt;
+    } else {
+      usCost += cost; usVal += val; usDay += st.dayAmt;
+    }
+    if (st.alertLevel >= 2) sellAlerts.push({ name: asset.name, label: st.label, detail: st.detail });
+    if (st.alertLevel === 1) tpAlerts.push({ name: asset.name, label: st.label, detail: st.detail });
+    return { h, it, asset, st, cost, val };
+  });
+
+  if (sellAlerts.length > 0 || tpAlerts.length > 0) {
+    banner.classList.remove("hidden");
+    const msgs = [
+      ...sellAlerts.map((a) => `${a.label} · <b>${a.name}</b> (${a.detail})`),
+      ...tpAlerts.map((a) => `${a.label} · <b>${a.name}</b> (${a.detail})`),
+    ];
+    banner.innerHTML = `🚨 <b>내 보유종목 점검 알림 (${msgs.length}건)</b>: ` + msgs.join(" &nbsp;|&nbsp; ");
+  } else {
+    banner.classList.add("hidden");
+  }
+
+  const krRet = krCost > 0 ? ((krVal / krCost) - 1) * 100 : 0;
+  const usRet = usCost > 0 ? ((usVal / usCost) - 1) * 100 : 0;
+  kpiWrap.innerHTML = `
+    <div class="kpi-box"><div><div class="muted">🇰🇷 국내(KRW) 평가</div><div class="${pctClass(krVal - krCost)}">${fmtPrice(krVal - krCost, "KRW")} (${fmtPct(krRet)})</div></div><div class="kpi-num" style="font-size:18px;">${fmtPrice(krVal, "KRW")}</div></div>
+    <div class="kpi-box"><div><div class="muted">🇺🇸·🪙 달러(USD) 평가</div><div class="${pctClass(usVal - usCost)}">${fmtPrice(usVal - usCost, "USD")} (${fmtPct(usRet)})</div></div><div class="kpi-num" style="font-size:18px;">${fmtPrice(usVal, "USD")}</div></div>
+    <div class="kpi-box"><div><div class="muted">오늘 일일 변동</div><div class="muted">KRW / USD</div></div><div style="text-align:right;font-weight:700;"><div class="${pctClass(krDay)}">${krDay >= 0 ? "+" : ""}${fmtPrice(krDay, "KRW")}</div><div class="${pctClass(usDay)}">${usDay >= 0 ? "+" : ""}${fmtPrice(usDay, "USD")}</div></div></div>
+    <div class="kpi-box"><div><div class="muted">🔴 매도·손절 경보</div><div class="muted">내 보유종목 기준</div></div><div class="kpi-num neg">${sellAlerts.length}</div></div>
+    <div class="kpi-box"><div><div class="muted">🟣 익절검토 · 🟢 보유</div><div class="muted">총 ${state.myHoldings.length}종목</div></div><div class="kpi-num pos">${state.myHoldings.length - sellAlerts.length}</div></div>
+  `;
+
+  if (evalRows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" class="muted" style="text-align:center;padding:28px;">아직 등록된 보유종목이 없습니다. 위 폼에서 실제 보유 중인 종목의 매수가·수량을 입력하시면 수익률과 맞춤 매도/손절 경보가 자동 계산됩니다.</td></tr>`;
+  } else {
+    evalRows.sort((a, b) => b.st.alertLevel - a.st.alertLevel || b.st.pnlPct - a.st.pnlPct);
+    tbody.innerHTML = evalRows
+      .map(({ h, it, asset, st }) => {
+        const cur = asset.currency;
+        return `
+          <tr data-sym="${h.symbol}">
+            <td><b>${asset.name}</b><div class="muted">${h.symbol} · ${h.buyDate || ""}</div></td>
+            <td><span class="mkt-tag mkt-${asset.market}">${asset.market}</span><span class="theme-tag">${asset.theme || ""}</span></td>
+            <td class="num">${fmtPrice(h.avgPrice, cur)}</td>
+            <td class="num"><div>${it ? fmtPrice(it.close, cur) : "-"}</div><div class="${it ? pctClass(it.change_pct) : ""}" style="font-size:11px;">${it ? fmtPct(it.change_pct) : "-"}</div></td>
+            <td class="num">${Number(h.qty).toLocaleString()}</td>
+            <td class="num"><div class="${pctClass(st.pnlPct)}" style="font-size:13px;">${fmtPct(st.pnlPct)}</div><div class="${pctClass(st.pnlAmt)}" style="font-size:11px;">${st.pnlAmt >= 0 ? "+" : ""}${fmtPrice(st.pnlAmt, cur)}</div></td>
+            <td style="font-size:11px;"><div class="neg">손절 ${fmtPrice(st.stopLoss, cur)}</div><div class="pos">목표 ${fmtPrice(st.target1, cur)}</div></td>
+            <td>${it ? renderRsiBadge(it) : "-"}</td>
+            <td><span class="rate-badge ${st.badgeClass}">${st.label}</span><div class="muted" style="margin-top:2px;">${st.detail}</div></td>
+            <td><button class="btn btn-secondary btn-sm del-hold-btn" data-del="${h.symbol}">삭제</button></td>
+          </tr>`;
+      })
+      .join("");
+
+    tbody.querySelectorAll("button[data-del]").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        removeHolding(b.dataset.del);
+      });
+    });
+    tbody.querySelectorAll("tr").forEach((tr) => {
+      tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, "S3"));
+    });
+  }
+
+  // Watchlist table
+  const wbody = $("watchlistTableBody");
+  if (!wbody) return;
+  if (state.myWatchlist.length === 0) {
+    wbody.innerHTML = `<tr><td colspan="8" class="muted" style="text-align:center;padding:20px;">관심종목이 없습니다. TOP 30이나 차트에서 ☆ 별표를 눌러 추가해 보세요.</td></tr>`;
+  } else {
+    wbody.innerHTML = state.myWatchlist
+      .map((sym) => {
+        const it = state.scannerMap[sym];
+        const asset = state.assets.find((a) => a.symbol === sym) || { name: sym, market: "", theme: "", currency: "USD" };
+        if (!it) return "";
+        const tp = it.trade_plan || {};
+        const disp = getDisplayRating(it);
+        return `
+          <tr data-sym="${sym}">
+            <td><b>${asset.name}</b> <span class="muted">${sym}</span></td>
+            <td><span class="mkt-tag mkt-${asset.market}">${asset.market}</span><span class="theme-tag">${asset.theme || ""}</span></td>
+            <td class="num"><b>${it.upside_prob.toFixed(1)}%</b></td>
+            <td><span class="rate-badge ${disp.badgeClass}">${disp.label}</span></td>
+            <td class="num">${fmtPrice(it.close, asset.currency)} <span class="${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</span></td>
+            <td>${renderRsiBadge(it)}</td>
+            <td style="font-size:11px;">손절 ${fmtPrice(tp.stop_loss, asset.currency)} / 목표 ${fmtPrice(tp.target_1, asset.currency)} (1:${tp.rr_ratio})</td>
+            <td>
+              <button class="btn btn-secondary btn-sm w-to-hold" data-sym="${sym}">+ 보유</button>
+              <button class="btn btn-secondary btn-sm w-unstar" data-sym="${sym}">★ 해제</button>
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    wbody.querySelectorAll(".w-to-hold").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const it = state.scannerMap[b.dataset.sym];
+        $("pfSymbolSelect").value = b.dataset.sym;
+        if (it) $("pfAvgPrice").value = it.close;
+        $("pfQty").focus();
+      });
+    });
+    wbody.querySelectorAll(".w-unstar").forEach((b) => {
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleStar(b.dataset.sym);
+      });
+    });
+    wbody.querySelectorAll("tr").forEach((tr) => {
+      tr.addEventListener("click", () => jumpToChart(tr.dataset.sym, "S3"));
+    });
+  }
 }
 
 function renderScannerView() {
   const data = state.scannerData;
   if (!data) return;
 
+  const mySellCnt = state.myHoldings.filter((h) => evaluateHoldingStatus(h, state.scannerMap[h.symbol]).alertLevel >= 2).length;
   $("scannerKpis").innerHTML = `
     <div class="kpi-box"><div><div class="muted">🟢 신규 매수</div><div class="muted">${data.strategy_name}</div></div><div class="kpi-num pos">${data.counts.BUY}</div></div>
-    <div class="kpi-box"><div><div class="muted">🔴 청산 매도</div><div class="muted">최근 2일 이탈</div></div><div class="kpi-num neg">${data.counts.SELL}</div></div>
     <div class="kpi-box"><div><div class="muted">🟡 돌파 임박</div><div class="muted">추세선 ${$("nearPctInput").value}% 이내</div></div><div class="kpi-num" style="color:#ffd54f">${data.counts.NEAR}</div></div>
-    <div class="kpi-box"><div><div class="muted">🔵 보유 / ⚪ 관망</div><div class="muted">${data.scanned_at}</div></div><div class="kpi-num" style="color:#82b1ff">${data.counts.HOLD}<span style="font-size:15px;color:#8b9bb4"> / ${data.counts.WATCH}</span></div></div>
+    <div class="kpi-box"><div><div class="muted">💎 RSI 과매도</div><div class="muted">RSI ≤ 36 매수 주목</div></div><div class="kpi-num" style="color:#40e0ff">${data.oversold_total || 0}</div></div>
+    <div class="kpi-box"><div><div class="muted">💼 내 보유 매도경보</div><div class="muted">보유 ${state.myHoldings.length}종목 중</div></div><div class="kpi-num ${mySellCnt > 0 ? "neg" : ""}" style="${mySellCnt === 0 ? "color:#82b1ff" : ""}">${mySellCnt}</div></div>
   `;
 
   // Theme heat bar
@@ -1327,7 +1895,7 @@ function renderScannerView() {
         <div class="theme-heat-meta">
           <span class="pos">매수 ${th.BUY}</span> ·
           <span style="color:#ffd54f">임박 ${th.NEAR}</span> ·
-          <span class="neg">매도 ${th.SELL}</span><br/>
+          <span style="color:#40e0ff">과매도 ${th.oversold || 0}</span><br/>
           MA200 강세 <b>${th.ma200_ok_pct}%</b> (${th.total}종목)
         </div>
       </div>`
@@ -1342,17 +1910,34 @@ function renderScannerView() {
     });
   });
 
-  const filteredItems = data.items.filter(
-    (it) => state.scannerThemeFilter === "ALL" || it.theme === state.scannerThemeFilter
-  );
+  const filteredItems = data.items.filter((it) => {
+    if (state.scannerThemeFilter !== "ALL" && it.theme !== state.scannerThemeFilter) return false;
+    if (state.scannerOversoldOnly && (it.rsi14 === null || it.rsi14 > 36)) return false;
+    return true;
+  });
 
-  const badgeText = { BUY: "🟢 매수", SELL: "🔴 매도", NEAR: "🟡 임박", HOLD: "🔵 보유", WATCH: "⚪ 관망" };
   $("scannerTableBody").innerHTML = filteredItems
-    .map(
-      (it) => `
+    .map((it) => {
+      const h = getHolding(it.symbol);
+      const disp = getDisplayRating(it);
+      // Status column reflects user's own holdings for HOLD/SELL, and clean buy/near/oversold/watch for unowned stocks
+      let statusHtml = `<span class="sig-badge sig-WATCH">⚪ 관망</span>`;
+      if (h) {
+        const st = evaluateHoldingStatus(h, it);
+        statusHtml = st.alertLevel >= 2
+          ? `<span class="sig-badge sig-SELL">🔴 보유매도</span>`
+          : `<span class="sig-badge sig-HOLD">💼 보유중</span>`;
+      } else if (it.signal === "BUY") {
+        statusHtml = `<span class="sig-badge sig-BUY">🟢 신규매수</span>`;
+      } else if (it.signal === "NEAR") {
+        statusHtml = `<span class="sig-badge sig-NEAR">🟡 돌파임박</span>`;
+      } else if (it.rsi14 !== null && it.rsi14 <= 36) {
+        statusHtml = `<span class="rsi-oversold">💎 과매도</span>`;
+      }
+      return `
       <tr data-sym="${it.symbol}">
-        <td><span class="sig-badge sig-${it.signal}">${badgeText[it.signal]}</span></td>
-        <td><span class="rate-badge rate-${it.rating || "HOLD_WATCH"}">${it.rating_label || "⚪ 관망"}</span></td>
+        <td>${statusHtml}</td>
+        <td><span class="rate-badge ${disp.badgeClass}">${disp.label}</span></td>
         <td class="num"><b>${Number(it.upside_prob || 0).toFixed(1)}%</b></td>
         <td><b>${it.name}</b> <span class="muted">${it.symbol}</span></td>
         <td><span class="mkt-tag mkt-${it.market}">${it.market}</span><span class="theme-tag">${it.theme || ""}</span></td>
@@ -1360,10 +1945,8 @@ function renderScannerView() {
         <td class="num ${pctClass(it.change_pct)}">${fmtPct(it.change_pct)}</td>
         <td>
           <span class="${it.above_ma20 ? "pos" : "neg"}">20${it.above_ma20 ? "▲" : "▼"}</span> ·
-          <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span>
-          <span class="${it.ma200_state === "up" ? "pos" : it.ma200_state === "flat" ? "" : "neg"}" style="${it.ma200_state === "flat" ? "color:#ffd54f" : ""}">
-            ${it.ma200_state === "up" ? "↗" : it.ma200_state === "flat" ? "→" : "↘"}
-          </span>
+          <span class="${it.above_ma200 ? "pos" : "neg"}">200${it.above_ma200 ? "▲" : "▼"}</span> ·
+          ${renderRsiBadge(it)}
         </td>
         <td class="num ${it.dist_short_upper_pct !== null && it.dist_short_upper_pct <= 0 ? "pos" : "muted"}">
           ${it.dist_short_upper_pct !== null ? fmtPct(it.dist_short_upper_pct) : "-"}
@@ -1371,9 +1954,9 @@ function renderScannerView() {
         <td class="num ${it.dist_long_upper_pct !== null && it.dist_long_upper_pct <= 0 ? "pos" : "muted"}">
           ${it.dist_long_upper_pct !== null ? fmtPct(it.dist_long_upper_pct) : "-"}
         </td>
-        <td class="muted">${it.reason}</td>
-      </tr>`
-    )
+        <td class="muted">${h ? evaluateHoldingStatus(h, it).detail : it.reason}</td>
+      </tr>`;
+    })
     .join("");
 
   $("scannerTableBody").querySelectorAll("tr").forEach((tr) => {
