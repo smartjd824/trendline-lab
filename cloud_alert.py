@@ -69,12 +69,15 @@ def main() -> None:
         print("No cloud alert secrets configured — skipping cloud notification.")
         return
     title, full_text, _, _ = format_full_alert_report(scan, include_near=True, session=session)
+    from backend.telegram_brief import build_brief
+
+    _, brief_html = build_brief(scan, session)  # 텔레그램은 읽기 쉬운 요약형 (전체 리포트는 웹 대시보드)
     cfg = {
         "macos_enabled": False,
         "telegram_enabled": bool(tg_token and tg_chat), "telegram_bot_token": tg_token, "telegram_chat_id": tg_chat,
         "discord_enabled": bool(dc_url), "discord_webhook_url": dc_url,
     }
-    print("Cloud Alert Results:", dispatch_alerts(title, full_text, cfg))
+    print("Cloud Alert Results:", dispatch_alerts(title, full_text, cfg, html_body=brief_html))
 
 
 if __name__ == "__main__":

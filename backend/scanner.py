@@ -1025,12 +1025,16 @@ def scan_and_notify(
             "message": "발송할 신호가 없습니다.",
         }
 
+    from backend.telegram_brief import build_brief
+
+    _, brief_html = build_brief(scan, "AFTERNOON")
     alert_results = dispatch_alerts(
         title=title,
         full_message=full_text,
         alert_cfg=alert_cfg,
         macos_summary=macos_summary,
         macos_subtitle=f"리포트 저장: {report_file.name}",
+        html_body=brief_html,
     )
     return {
         "scan": scan,

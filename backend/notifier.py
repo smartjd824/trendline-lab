@@ -111,13 +111,25 @@ def send_discord_message(webhook_url: str, text: str) -> dict[str, Any]:
         return {"channel": "discord", "ok": False, "error": str(exc)}
 
 
+def _html_to_discord(text: str) -> str:
+    """텔레그램용 HTML(<b>,<i>,<a>)을 디스코드 마크다운으로 변환."""
+    import re
+
+    text = re.sub(r'<a href="([^"]+)">([^<]+)</a>', r"\2 (\1)", text)
+    text = re.sub(r"</?b>", "**", text)
+    text = re.sub(r"</?i>", "*", text)
+    return html.unescape(text)
+
+
 def dispatch_alerts(
     title: str,
     full_message: str,
     alert_cfg: dict[str, Any],
     macos_summary: str | None = None,
     macos_subtitle: str = "",
+    html_body: str | None = None,
 ) -> list[dict[str, Any]]:
+    """html_body 가 주어지면 텔레그램엔 그 HTML을 그대로(제목 포함, 이미 이스케이프됨), 디스코드엔 마크다운으로 변환해 보낸다."""
     results: list[dict[str, Any]] = []
     if alert_cfg.get("macos_enabled"):
         results.append(send_macos_notification(title, macos_summary or full_message, subtitle=macos_subtitle))
@@ -128,14 +140,16 @@ def dispatch_alerts(
                 alert_cfg.get("telegram_chat_id", ""),
                 # parse_mode=HTML: raw '&' / '<' (e.g. "S&P 500", "Johnson & Johnson") must be escaped,
                 # otherwise Telegram rejects the message with "can't parse entities".
-                f"<b>{html.escape(title, quote=False)}</b>\n\n{html.escape(full_message, quote=False)}",
+                html_body
+                if html_body is not None
+                else f"<b>{html.escape(title, quote=False)}</b>\n\n{html.escape(full_message, quote=False)}",
             )
         )
     if alert_cfg.get("discord_enabled"):
         results.append(
             send_discord_message(
                 alert_cfg.get("discord_webhook_url", ""),
-                f"**{title}**\n\n{full_message}",
+                _html_to_discord(html_body) if html_body is not None else f"**{title}**\n\n{full_message}",
             )
         )
     return results
