@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       session:
-        description: "리포트 종류"
+        description: "리포트 종류 (AUTO=시간에 맞춰 자동)"
         type: choice
         options: [AUTO, MORNING, AFTERNOON]
         default: AUTO
@@ -24,12 +24,13 @@ concurrency:
 
 jobs:
   build-and-alert:
+    name: 데이터 갱신·리포트·알림
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: 저장소 내려받기
         uses: actions/checkout@v4
 
-      - name: Decide session (MORNING / AFTERNOON)
+      - name: 리포트 종류 결정 (아침 MORNING / 오후 AFTERNOON)
         run: |
           S="${{ github.event.inputs.session }}"
           if [ "${{ github.event.schedule }}" = "47 22 * * *" ]; then S=MORNING; fi
@@ -40,43 +41,43 @@ jobs:
           echo "REPORT_SESSION=$S" >> "$GITHUB_ENV"
           # 오후: 한국 장중 봉을 '예비 종가'로 사용 (코인·미국은 확정 봉만)
           if [ "$S" = "AFTERNOON" ]; then echo "TRENDLINE_PARTIAL_OK=KR" >> "$GITHUB_ENV"; fi
-          echo "Session=$S (KST $(TZ=Asia/Seoul date '+%F %H:%M'))"
+          echo "리포트=$S (KST $(TZ=Asia/Seoul date '+%F %H:%M'))"
 
-      - name: Install uv
+      - name: uv 설치
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Install Python dependencies
+      - name: 파이썬 패키지 설치
         run: uv sync
 
-      - name: Fetch latest 7.6-year market data
+      - name: 최근 7.6년 시세 내려받기
         run: |
           uv run python -c "from backend.data_loader import fetch_and_cache_symbols; res = fetch_and_cache_symbols(years=7.6, force=True); print('Updated:', len(res['updated']), 'Failed:', len(res['failed']))"
 
-      - name: Build static web dashboard into ./docs
+      - name: 웹 대시보드 만들기 (docs)
         env:
           SITE_PASSCODE: ${{ secrets.SITE_PASSCODE }}
         run: uv run python build_static_site.py
 
-      - name: Send Telegram / Discord alert + append forward-test log
+      - name: 텔레그램 알림 발송 + 모의 성과 기록
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: uv run python cloud_alert.py
 
-      - name: Commit forward-test log
+      - name: 모의 성과 기록 커밋
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add track/forward_log.csv
-          if git diff --cached --quiet; then echo "no log change"; exit 0; fi
+          if git diff --cached --quiet; then echo "기록 변경 없음"; exit 0; fi
           git commit -m "모의 포트폴리오 실전 기록 ${REPORT_SESSION} $(TZ=Asia/Seoul date '+%F %H:%M')"
           git pull --rebase --autostash || true
-          git push || echo "::warning::forward log push failed"
+          git push || echo "::warning::모의 성과 기록 push 실패"
 
-      - name: Upload GitHub Pages artifact
+      - name: 웹페이지 파일 올리기
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./docs
@@ -85,9 +86,10 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    name: 웹페이지 배포
     runs-on: ubuntu-latest
     needs: build-and-alert
     steps:
-      - name: Deploy to GitHub Pages
+      - name: 웹페이지 배포
         id: deployment
         uses: actions/deploy-pages@v4

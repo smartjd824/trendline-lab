@@ -20,7 +20,7 @@ import pandas as pd
 
 from config import LEGACY_ASSETS, UNIVERSE_PATH, UNIVERSE_RULES
 from backend.data_loader import fetch_and_cache_symbols, is_low_precision, load_ohlcv
-from universe_pool import EXCLUDE_ALWAYS, LEGACY_THEME_MAP, NEW_CANDIDATES, SYMBOL_THEME_OVERRIDE, THEMES_V2
+from universe_pool import EXCLUDE_ALWAYS, KO_NAMES, LEGACY_THEME_MAP, NEW_CANDIDATES, SYMBOL_THEME_OVERRIDE, THEMES_V2
 
 CUR = {"KOSPI": "KRW", "KOSDAQ": "KRW", "US": "USD", "CRYPTO": "USD"}
 
@@ -33,6 +33,9 @@ def candidate_pool() -> list[dict]:
     for sym, name, mkt, theme in NEW_CANDIDATES:
         if sym not in pool:
             pool[sym] = {"symbol": sym, "name": name, "market": mkt, "theme": theme, "currency": CUR[mkt], "source": "신규"}
+    for a in pool.values():  # 한국어 표시 이름 (미국 종목·코인)
+        if a["symbol"] in KO_NAMES:
+            a["name"] = KO_NAMES[a["symbol"]]
     return list(pool.values())
 
 

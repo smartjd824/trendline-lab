@@ -371,14 +371,14 @@ LEGACY_ASSETS: list[AssetInfo] = [
 
 # 10 Global Indices & Macro Benchmarks (displayed FIRST for top-down market flow & index investing)
 INDICES: list[dict[str, Any]] = [
-    {"symbol": "^KS11", "name": "코스피 (KOSPI)", "group": "INDEX", "etf_tip": "KODEX 200", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^KQ11", "name": "코스닥 (KOSDAQ)", "group": "INDEX", "etf_tip": "KODEX 코스닥150", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^GSPC", "name": "S&P 500", "group": "INDEX", "etf_tip": "SPY / VOO", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^NDX", "name": "나스닥 100", "group": "INDEX", "etf_tip": "QQQ", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^SOX", "name": "필라델피아 반도체", "group": "INDEX", "etf_tip": "SOXX", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^DJI", "name": "다우존스 30", "group": "INDEX", "etf_tip": "DIA", "unit": "pt", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "GC=F", "name": "국제 금 (Gold)", "group": "INDEX", "etf_tip": "GLD", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
-    {"symbol": "^VIX", "name": "공포지수 (VIX)", "group": "MACRO", "etf_tip": "변동성 지표", "unit": "pt", "currency": "PT", "market": "MACRO", "theme": "지수·매크로"},
+    {"symbol": "^KS11", "name": "코스피", "group": "INDEX", "etf_tip": "KODEX 200", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^KQ11", "name": "코스닥", "group": "INDEX", "etf_tip": "KODEX 코스닥150", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^GSPC", "name": "S&P 500", "group": "INDEX", "etf_tip": "SPY / VOO", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^NDX", "name": "나스닥 100", "group": "INDEX", "etf_tip": "QQQ", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^SOX", "name": "필라델피아 반도체", "group": "INDEX", "etf_tip": "SOXX", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^DJI", "name": "다우존스 30", "group": "INDEX", "etf_tip": "DIA", "unit": "포인트", "currency": "PT", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "GC=F", "name": "국제 금", "group": "INDEX", "etf_tip": "GLD", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "^VIX", "name": "공포지수 (VIX)", "group": "MACRO", "etf_tip": "변동성 지표", "unit": "포인트", "currency": "PT", "market": "MACRO", "theme": "지수·매크로"},
     {"symbol": "KRW=X", "name": "원/달러 환율", "group": "MACRO", "etf_tip": "외국인 수급", "unit": "원", "currency": "KRW", "market": "MACRO", "theme": "지수·매크로"},
     {"symbol": "^TNX", "name": "미국 10년 국채금리", "group": "MACRO", "etf_tip": "금리·밸류에이션", "unit": "%", "currency": "PCT", "market": "MACRO", "theme": "지수·매크로"},
 ]

@@ -129,7 +129,7 @@ def format_rotation_report(rot: dict[str, Any], markets: list[str] | None = None
             continue
         ps, bs = m["perf_since_start"], m["bnh_since_start"]
         py, by = m["perf_ytd"], m["bnh_ytd"]
-        reg = "ON" if m["regime_on"] else "OFF(현금화)"
+        reg = "켜짐(투자)" if m["regime_on"] else "꺼짐(현금화)"
         lines.append(
             f"  {labels.get(mkt, mkt)} [{m['label']}] 지수필터 {reg} · 보유 {len(m['holdings'])}/{m['slots']} · 현금 {m['cash_pct']:.0f}%"
         )

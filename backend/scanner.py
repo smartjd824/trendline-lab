@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -839,6 +840,26 @@ def scan_all_assets(
     }
 
 
+# 화면·텔레그램 표시용 한국어 용어 (코드 식별자는 건드리지 않고 '보이는 글'만 변환)
+KO_TERMS: list[tuple[str, str]] = [
+    (r"Buy\s*&\s*Hold", "단순보유"), (r"B&H", "단순보유"),
+    (r"(?<![A-Za-z0-9])MA200(?![0-9])", "200일선"), (r"(?<![A-Za-z0-9])MA50(?![0-9])", "50일선"),
+    (r"(?<![A-Za-z0-9])MA40(?![0-9])", "40일선"), (r"(?<![A-Za-z0-9])MA20(?![0-9])", "20일선"),
+    (r"(?<![A-Za-z0-9])MA5(?![0-9])", "5일선"), (r"(?<![A-Za-z])MDD(?![A-Za-z])", "최대낙폭"),
+    (r"R:R", "손익비"), (r"(?<![A-Za-z])(?:TOP|Top)\s*(\d+)", r"상위 \1"), (r"(?<![A-Za-z])TOP(?![A-Za-z])", "상위"),
+    (r"(?<![A-Za-z])PF(?![A-Za-z])", "이익계수"), (r"(?<![A-Za-z])NEW(?![A-Za-z])", "신규"),
+    (r"(?<![A-Za-z])Sharpe(?![A-Za-z])", "샤프"), (r"(?<![A-Za-z])CAGR(?![A-Za-z])", "연복리"),
+    (r"TrendLine Quant Lab", "추세선 퀀트 연구소"),
+]
+_KO_RE = [(re.compile(a), b) for a, b in KO_TERMS]
+
+
+def to_korean(text: str) -> str:
+    for rx, rep in _KO_RE:
+        text = rx.sub(rep, text)
+    return text
+
+
 SESSIONS = {
     "MORNING": {"title": "아침 리포트 · 미국·코인", "markets": ["US", "CRYPTO"],
                 "guide": "⏰ 미국: 전일 종가 확정 → 오늘 밤 개장(23:30, 서머타임 22:30)에 주문 · 코인: 일봉 마감(09:00) 직전 가격 기준 → 받는 즉시 주문"},
@@ -883,7 +904,7 @@ def format_full_alert_report(
             if x["group"] == "INDEX":
                 arrow = "↗" if x["ma200_state"] == "up" else ("→" if x["ma200_state"] == "flat" else "↘")
                 sections.append(
-                    f"  • {x['name']}: {x['close']:,.2f} ({x['change_pct']:+.1f}%, 1M {x['ret20_pct']:+.1f}%) · 확률 {x['upside_prob']:.0f}% [{x['rating_label']}] · RSI {x['rsi14']} · MA200{arrow}"
+                    f"  • {x['name']}: {x['close']:,.2f} ({x['change_pct']:+.1f}%, 1개월 {x['ret20_pct']:+.1f}%) · 확률 {x['upside_prob']:.0f}% [{x['rating_label']}] · RSI {x['rsi14']} · MA200{arrow}"
                 )
             else:
                 sections.append(
@@ -965,7 +986,7 @@ def format_full_alert_report(
         mac_parts.append("임박: " + ", ".join(x["name"] for x in nears[:5]))
     macos_summary = " / ".join(mac_parts) if mac_parts else f"TOP1: {top5[0]['name']} {top5[0]['upside_prob']}%" if top5 else "스캔 완료"
 
-    return title, full_text, macos_summary, triggered
+    return to_korean(title), to_korean(full_text), to_korean(macos_summary), triggered
 
 
 def scan_and_notify(

@@ -766,7 +766,7 @@ function renderTradingViewChart(data) {
     lineWidth: 2.5,
     priceLineVisible: true,
     lastValueVisible: true,
-    title: "MA20",
+    title: "20일선",
   });
   ma20Series.setData(ma20);
 
@@ -775,7 +775,7 @@ function renderTradingViewChart(data) {
     lineWidth: 2.8,
     priceLineVisible: true,
     lastValueVisible: true,
-    title: "MA200",
+    title: "200일선",
   });
   ma200Series.setData(ma200);
 
@@ -2129,7 +2129,7 @@ function renderRotationCard() {
         : `<div class="muted">보유 없음 (현금 ${m.cash_pct.toFixed(0)}%)</div>`;
       return `
         <div class="rot-box">
-          <div class="rot-head"><span>${labels[mkt] || mkt}</span><span class="rot-badge ${m.regime_on ? "on" : "off"}">지수필터 ${m.regime_on ? "ON" : "OFF · 현금화"}</span></div>
+          <div class="rot-head"><span>${labels[mkt] || mkt}</span><span class="rot-badge ${m.regime_on ? "on" : "off"}">지수필터 ${m.regime_on ? "켜짐 · 투자" : "꺼짐 · 현금화"}</span></div>
           <div class="muted" title="${escHtml(m.basis)}">${escHtml(m.label)} · ${m.slots}칸</div>
           <div class="rot-perf">
             <div class="muted">누적</div><div>${pct(ps.ret)} <span class="muted">(보유 ${pct(bs.ret)})</span></div>
@@ -2185,3 +2185,55 @@ function renderRotationCompare(cmp, labels, pct) {
 function escHtml(v) {
   return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
+
+
+/* ==================== 화면 한국어 표시 (보이는 글자만 변환, 코드·데이터 키는 그대로) ==================== */
+const KO_TERMS = [
+  [/Buy\s*&\s*Hold/g, "단순보유"], [/B&H/g, "단순보유"],
+  [/(^|[^A-Za-z0-9])MA200(?![0-9])/g, "$1200일선"], [/(^|[^A-Za-z0-9])MA50(?![0-9])/g, "$150일선"],
+  [/(^|[^A-Za-z0-9])MA40(?![0-9])/g, "$140일선"], [/(^|[^A-Za-z0-9])MA20(?![0-9])/g, "$120일선"],
+  [/(^|[^A-Za-z0-9])MA5(?![0-9])/g, "$15일선"], [/(^|[^A-Za-z])MDD(?![A-Za-z])/g, "$1최대낙폭"],
+  [/R:R/g, "손익비"], [/(^|[^A-Za-z])(?:TOP|Top)\s*(\d+)/g, "$1상위 $2"], [/(^|[^A-Za-z])TOP(?![A-Za-z])/g, "$1상위"],
+  [/(^|[^A-Za-z])PF(?![A-Za-z])/g, "$1이익계수"], [/(^|[^A-Za-z])NEW(?![A-Za-z])/g, "$1신규"],
+  [/(^|[^A-Za-z])Sharpe(?![A-Za-z])/g, "$1샤프"], [/(^|[^A-Za-z])CAGR(?![A-Za-z])/g, "$1연복리"],
+  [/TrendLine Quant Lab/g, "추세선 퀀트 연구소"],
+];
+function koText(t) {
+  let out = t;
+  for (const [rx, rep] of KO_TERMS) out = out.replace(rx, rep);
+  return out;
+}
+function koTranslateNode(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentNode && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentNode.nodeName) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  let n;
+  while ((n = walker.nextNode())) {
+    const v = n.nodeValue;
+    if (/[A-Za-z]/.test(v)) {
+      const k = koText(v);
+      if (k !== v) n.nodeValue = k;
+    }
+  }
+  root.querySelectorAll && root.querySelectorAll("[title],[placeholder]").forEach((el) => {
+    ["title", "placeholder"].forEach((a) => {
+      const v = el.getAttribute(a);
+      if (v && /[A-Za-z]/.test(v)) {
+        const k = koText(v);
+        if (k !== v) el.setAttribute(a, k);
+      }
+    });
+  });
+}
+document.addEventListener("DOMContentLoaded", () => {
+  document.title = koText(document.title);
+  koTranslateNode(document.body);
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === "characterData") {
+        const v = m.target.nodeValue, k = koText(v);
+        if (k !== v) m.target.nodeValue = k;
+      } else m.addedNodes.forEach((nd) => (nd.nodeType === 3 ? (nd.nodeValue = koText(nd.nodeValue)) : nd.nodeType === 1 && koTranslateNode(nd)));
+    }
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+});

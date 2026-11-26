@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-11-26 23:23",
+ "generated_at": "2026-11-27 00:21",
  "rules": {
   "min_bars": 400,
   "min_liquidity": {
@@ -379,7 +379,7 @@
   },
   {
    "symbol": "010950.KS",
-   "name": "S-Oil",
+   "name": "에쓰오일",
    "market": "KOSPI",
    "theme": "에너지·자원",
    "currency": "KRW"
@@ -918,7 +918,7 @@
   },
   {
    "symbol": "035900.KQ",
-   "name": "JYP Ent.",
+   "name": "JYP엔터테인먼트",
    "market": "KOSDAQ",
    "theme": "소비·엔터·K뷰티",
    "currency": "KRW"
@@ -1205,28 +1205,28 @@
   },
   {
    "symbol": "NVDA",
-   "name": "NVIDIA",
+   "name": "엔비디아",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "MU",
-   "name": "Micron",
+   "name": "마이크론",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "AAPL",
-   "name": "Apple",
+   "name": "애플",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "TSLA",
-   "name": "Tesla",
+   "name": "테슬라",
    "market": "US",
    "theme": "자동차·모빌리티",
    "currency": "USD"
@@ -1240,49 +1240,49 @@
   },
   {
    "symbol": "META",
-   "name": "Meta",
+   "name": "메타",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "MSFT",
-   "name": "Microsoft",
+   "name": "마이크로소프트",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "INTC",
-   "name": "Intel",
+   "name": "인텔",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "AMZN",
-   "name": "Amazon",
+   "name": "아마존",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "GOOGL",
-   "name": "Alphabet",
+   "name": "알파벳(구글)",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "AVGO",
-   "name": "Broadcom",
+   "name": "브로드컴",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "MRVL",
-   "name": "Marvell",
+   "name": "마벨 테크놀로지",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
@@ -1296,91 +1296,91 @@
   },
   {
    "symbol": "ORCL",
-   "name": "Oracle",
+   "name": "오라클",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "PLTR",
-   "name": "Palantir",
+   "name": "팔란티어",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "BE",
-   "name": "Bloom Energy",
+   "name": "블룸에너지",
    "market": "US",
    "theme": "수소·신재생",
    "currency": "USD"
   },
   {
    "symbol": "LLY",
-   "name": "Eli Lilly",
+   "name": "일라이릴리",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "AMAT",
-   "name": "Applied Materials",
+   "name": "어플라이드 머티어리얼즈",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "MSTR",
-   "name": "Strategy (MSTR)",
+   "name": "스트래티지(MSTR)",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "LRCX",
-   "name": "Lam Research",
+   "name": "램리서치",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "NFLX",
-   "name": "Netflix",
+   "name": "넷플릭스",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "GEV",
-   "name": "GE Vernova",
+   "name": "GE 버노바",
    "market": "US",
    "theme": "전력망·전력기기",
    "currency": "USD"
   },
   {
    "symbol": "BRK-B",
-   "name": "Berkshire Hathaway",
+   "name": "버크셔 해서웨이",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "WMT",
-   "name": "Walmart",
+   "name": "월마트",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "V",
-   "name": "Visa",
+   "name": "비자",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "JPM",
-   "name": "JPMorgan",
+   "name": "JP모건",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
@@ -1394,175 +1394,175 @@
   },
   {
    "symbol": "CRWD",
-   "name": "CrowdStrike",
+   "name": "크라우드스트라이크",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "COST",
-   "name": "Costco",
+   "name": "코스트코",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "XOM",
-   "name": "Exxon Mobil",
+   "name": "엑슨모빌",
    "market": "US",
    "theme": "에너지·자원",
    "currency": "USD"
   },
   {
    "symbol": "PANW",
-   "name": "Palo Alto",
+   "name": "팔로알토 네트웍스",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "QCOM",
-   "name": "Qualcomm",
+   "name": "퀄컴",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "CRM",
-   "name": "Salesforce",
+   "name": "세일즈포스",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "UNH",
-   "name": "UnitedHealth",
+   "name": "유나이티드헬스",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "HOOD",
-   "name": "Robinhood",
+   "name": "로빈후드",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "CSCO",
-   "name": "Cisco",
+   "name": "시스코",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "GS",
-   "name": "Goldman Sachs",
+   "name": "골드만삭스",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "JNJ",
-   "name": "Johnson & Johnson",
+   "name": "존슨앤드존슨",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "KLAC",
-   "name": "KLA Corp",
+   "name": "KLA",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "NOW",
-   "name": "ServiceNow",
+   "name": "서비스나우",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "MA",
-   "name": "Mastercard",
+   "name": "마스터카드",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "HD",
-   "name": "Home Depot",
+   "name": "홈디포",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "SNOW",
-   "name": "Snowflake",
+   "name": "스노우플레이크",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "COIN",
-   "name": "Coinbase",
+   "name": "코인베이스",
    "market": "US",
    "theme": "금융·지주·가치",
    "currency": "USD"
   },
   {
    "symbol": "VRT",
-   "name": "Vertiv",
+   "name": "버티브",
    "market": "US",
    "theme": "전력망·전력기기",
    "currency": "USD"
   },
   {
    "symbol": "PG",
-   "name": "Procter & Gamble",
+   "name": "P&G",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "ABBV",
-   "name": "AbbVie",
+   "name": "애브비",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "SMCI",
-   "name": "Super Micro",
+   "name": "슈퍼마이크로",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "APP",
-   "name": "AppLovin",
+   "name": "앱러빈",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "UBER",
-   "name": "Uber",
+   "name": "우버",
    "market": "US",
    "theme": "자동차·모빌리티",
    "currency": "USD"
   },
   {
    "symbol": "SHOP",
-   "name": "Shopify",
+   "name": "쇼피파이",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "ARM",
-   "name": "Arm Holdings",
+   "name": "ARM 홀딩스",
    "market": "US",
    "theme": "AI·반도체",
    "currency": "USD"
@@ -1576,518 +1576,518 @@
   },
   {
    "symbol": "AMGN",
-   "name": "Amgen",
+   "name": "암젠",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "RKLB",
-   "name": "Rocket Lab",
+   "name": "로켓랩",
    "market": "US",
    "theme": "우주항공",
    "currency": "USD"
   },
   {
    "symbol": "ANET",
-   "name": "Arista Networks",
+   "name": "아리스타 네트웍스",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "ADBE",
-   "name": "Adobe",
+   "name": "어도비",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "NET",
-   "name": "Cloudflare",
+   "name": "클라우드플레어",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "NEE",
-   "name": "NextEra Energy",
+   "name": "넥스트에라 에너지",
    "market": "US",
    "theme": "수소·신재생",
    "currency": "USD"
   },
   {
    "symbol": "TER",
-   "name": "Teradyne",
+   "name": "테라다인",
    "market": "US",
    "theme": "로봇·휴머노이드",
    "currency": "USD"
   },
   {
    "symbol": "ETN",
-   "name": "Eaton",
+   "name": "이튼",
    "market": "US",
    "theme": "전력망·전력기기",
    "currency": "USD"
   },
   {
    "symbol": "CEG",
-   "name": "Constellation Energy",
+   "name": "컨스텔레이션 에너지",
    "market": "US",
    "theme": "원전·SMR",
    "currency": "USD"
   },
   {
    "symbol": "ISRG",
-   "name": "Intuitive Surgical",
+   "name": "인튜이티브 서지컬",
    "market": "US",
    "theme": "로봇·휴머노이드",
    "currency": "USD"
   },
   {
    "symbol": "DIS",
-   "name": "Disney",
+   "name": "디즈니",
    "market": "US",
    "theme": "소비·엔터·K뷰티",
    "currency": "USD"
   },
   {
    "symbol": "RTX",
-   "name": "RTX Corp",
+   "name": "RTX(레이시온)",
    "market": "US",
    "theme": "방산",
    "currency": "USD"
   },
   {
    "symbol": "DE",
-   "name": "Deere & Co",
+   "name": "디어앤드컴퍼니",
    "market": "US",
    "theme": "로봇·휴머노이드",
    "currency": "USD"
   },
   {
    "symbol": "DDOG",
-   "name": "Datadog",
+   "name": "데이터독",
    "market": "US",
    "theme": "빅테크·SW·통신",
    "currency": "USD"
   },
   {
    "symbol": "FCX",
-   "name": "Freeport-McMoRan",
+   "name": "프리포트맥모란",
    "market": "US",
    "theme": "2차전지·소재",
    "currency": "USD"
   },
   {
    "symbol": "VST",
-   "name": "Vistra",
+   "name": "비스트라",
    "market": "US",
    "theme": "전력망·전력기기",
    "currency": "USD"
   },
   {
    "symbol": "IONQ",
-   "name": "IonQ",
+   "name": "아이온큐",
    "market": "US",
    "theme": "양자컴퓨팅",
    "currency": "USD"
   },
   {
    "symbol": "PWR",
-   "name": "Quanta Services",
+   "name": "콴타 서비스",
    "market": "US",
    "theme": "전력망·전력기기",
    "currency": "USD"
   },
   {
    "symbol": "LMT",
-   "name": "Lockheed Martin",
+   "name": "록히드마틴",
    "market": "US",
    "theme": "방산",
    "currency": "USD"
   },
   {
    "symbol": "VRTX",
-   "name": "Vertex Pharma",
+   "name": "버텍스 파마슈티컬스",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "ASTS",
-   "name": "AST SpaceMobile",
+   "name": "AST 스페이스모바일",
    "market": "US",
    "theme": "우주항공",
    "currency": "USD"
   },
   {
    "symbol": "NOC",
-   "name": "Northrop Grumman",
+   "name": "노스롭 그루먼",
    "market": "US",
    "theme": "방산",
    "currency": "USD"
   },
   {
    "symbol": "NVO",
-   "name": "Novo Nordisk",
+   "name": "노보 노디스크",
    "market": "US",
    "theme": "바이오·헬스케어",
    "currency": "USD"
   },
   {
    "symbol": "GD",
-   "name": "General Dynamics",
+   "name": "제너럴 다이내믹스",
    "market": "US",
    "theme": "방산",
    "currency": "USD"
   },
   {
    "symbol": "FSLR",
-   "name": "First Solar",
+   "name": "퍼스트솔라",
    "market": "US",
    "theme": "수소·신재생",
    "currency": "USD"
   },
   {
    "symbol": "AXON",
-   "name": "Axon Enterprise",
+   "name": "액손 엔터프라이즈",
    "market": "US",
    "theme": "방산",
    "currency": "USD"
   },
   {
    "symbol": "ROK",
-   "name": "Rockwell Automation",
+   "name": "록웰 오토메이션",
    "market": "US",
    "theme": "로봇·휴머노이드",
    "currency": "USD"
   },
   {
    "symbol": "CARR",
-   "name": "Carrier Global (냉방)",
+   "name": "캐리어 (냉방)",
    "market": "US",
    "theme": "기후·재난대응",
    "currency": "USD"
   },
   {
    "symbol": "OKLO",
-   "name": "Oklo",
+   "name": "오클로",
    "market": "US",
    "theme": "원전·SMR",
    "currency": "USD"
   },
   {
    "symbol": "AWK",
-   "name": "American Water Works",
+   "name": "아메리칸 워터웍스",
    "market": "US",
    "theme": "기후·재난대응",
    "currency": "USD"
   },
   {
    "symbol": "CCJ",
-   "name": "Cameco",
+   "name": "카메코",
    "market": "US",
    "theme": "원전·SMR",
    "currency": "USD"
   },
   {
    "symbol": "XYL",
-   "name": "Xylem (수처리·홍수)",
+   "name": "자일럼 (수처리·홍수)",
    "market": "US",
    "theme": "기후·재난대응",
    "currency": "USD"
   },
   {
    "symbol": "ALB",
-   "name": "Albemarle",
+   "name": "앨버말",
    "market": "US",
    "theme": "2차전지·소재",
    "currency": "USD"
   },
   {
    "symbol": "GNRC",
-   "name": "Generac (비상발전기)",
+   "name": "제너락 (비상발전기)",
    "market": "US",
    "theme": "기후·재난대응",
    "currency": "USD"
   },
   {
    "symbol": "SMR",
-   "name": "NuScale Power",
+   "name": "뉴스케일 파워",
    "market": "US",
    "theme": "원전·SMR",
    "currency": "USD"
   },
   {
    "symbol": "RGTI",
-   "name": "Rigetti Computing",
+   "name": "리게티 컴퓨팅",
    "market": "US",
    "theme": "양자컴퓨팅",
    "currency": "USD"
   },
   {
    "symbol": "QBTS",
-   "name": "D-Wave Quantum",
+   "name": "디웨이브 퀀텀",
    "market": "US",
    "theme": "양자컴퓨팅",
    "currency": "USD"
   },
   {
    "symbol": "ENPH",
-   "name": "Enphase Energy",
+   "name": "엔페이즈 에너지",
    "market": "US",
    "theme": "수소·신재생",
    "currency": "USD"
   },
   {
    "symbol": "BWXT",
-   "name": "BWX Technologies",
+   "name": "BWX 테크놀로지스",
    "market": "US",
    "theme": "원전·SMR",
    "currency": "USD"
   },
   {
    "symbol": "PL",
-   "name": "Planet Labs",
+   "name": "플래닛 랩스",
    "market": "US",
    "theme": "우주항공",
    "currency": "USD"
   },
   {
    "symbol": "LUNR",
-   "name": "Intuitive Machines",
+   "name": "인튜이티브 머신스",
    "market": "US",
    "theme": "우주항공",
    "currency": "USD"
   },
   {
    "symbol": "BTC-USD",
-   "name": "Bitcoin",
+   "name": "비트코인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ETH-USD",
-   "name": "Ethereum",
+   "name": "이더리움",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "SOL-USD",
-   "name": "Solana",
+   "name": "솔라나",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "XRP-USD",
-   "name": "XRP",
+   "name": "리플(XRP)",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "BNB-USD",
-   "name": "BNB",
+   "name": "바이낸스코인(BNB)",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "HYPE32196-USD",
-   "name": "Hyperliquid",
+   "name": "하이퍼리퀴드",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "NEAR-USD",
-   "name": "NEAR Protocol",
+   "name": "니어프로토콜",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "DOGE-USD",
-   "name": "Dogecoin",
+   "name": "도지코인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "UNI7083-USD",
-   "name": "Uniswap",
+   "name": "유니스왑",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "SUI20947-USD",
-   "name": "Sui",
+   "name": "수이",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "TRX-USD",
-   "name": "TRON",
+   "name": "트론",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ADA-USD",
-   "name": "Cardano",
+   "name": "에이다(카르다노)",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "AVAX-USD",
-   "name": "Avalanche",
+   "name": "아발란체",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "LINK-USD",
-   "name": "Chainlink",
+   "name": "체인링크",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "AAVE-USD",
-   "name": "Aave",
+   "name": "에이브",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "LTC-USD",
-   "name": "Litecoin",
+   "name": "라이트코인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "FET-USD",
-   "name": "Fetch.ai (ASI)",
+   "name": "페치(ASI)",
    "market": "CRYPTO",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "BCH-USD",
-   "name": "Bitcoin Cash",
+   "name": "비트코인캐시",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "TAO22974-USD",
-   "name": "Bittensor (AI)",
+   "name": "비트텐서(AI)",
    "market": "CRYPTO",
    "theme": "AI·반도체",
    "currency": "USD"
   },
   {
    "symbol": "XLM-USD",
-   "name": "Stellar",
+   "name": "스텔라루멘",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ARB11841-USD",
-   "name": "Arbitrum",
+   "name": "아비트럼",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ONDO-USD",
-   "name": "Ondo",
+   "name": "온도",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "XMR-USD",
-   "name": "Monero",
+   "name": "모네로",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "INJ-USD",
-   "name": "Injective",
+   "name": "인젝티브",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "DOT-USD",
-   "name": "Polkadot",
+   "name": "폴카닷",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "FIL-USD",
-   "name": "Filecoin",
+   "name": "파일코인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "HBAR-USD",
-   "name": "Hedera",
+   "name": "헤데라",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ALGO-USD",
-   "name": "Algorand",
+   "name": "알고랜드",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ICP-USD",
-   "name": "Internet Computer",
+   "name": "인터넷컴퓨터",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "APT21794-USD",
-   "name": "Aptos",
+   "name": "앱토스",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "SEI-USD",
-   "name": "Sei",
+   "name": "세이",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ETC-USD",
-   "name": "Ethereum Classic",
+   "name": "이더리움클래식",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
   },
   {
    "symbol": "ATOM-USD",
-   "name": "Cosmos",
+   "name": "코스모스",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "currency": "USD"
@@ -2166,21 +2166,21 @@
   },
   {
    "symbol": "VET-USD",
-   "name": "VeChain",
+   "name": "비체인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "reason": "거래대금 부족 (10.9백만$ < 30백만$)"
   },
   {
    "symbol": "SHIB-USD",
-   "name": "Shiba Inu",
+   "name": "시바이누",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "reason": "가격 정밀도 부족 (Yahoo 가격 뭉개짐)"
   },
   {
    "symbol": "PEPE24478-USD",
-   "name": "Pepe",
+   "name": "페페",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "reason": "가격 정밀도 부족 (Yahoo 가격 뭉개짐)"
@@ -2208,14 +2208,14 @@
   },
   {
    "symbol": "SYM",
-   "name": "Symbotic",
+   "name": "심보틱",
    "market": "US",
    "theme": "로봇·휴머노이드",
    "reason": "거래대금 부족 (62.1백만$ < 100백만$)"
   },
   {
    "symbol": "QUBT",
-   "name": "Quantum Computing Inc",
+   "name": "퀀텀 컴퓨팅",
    "market": "US",
    "theme": "양자컴퓨팅",
    "reason": "거래대금 부족 (47.1백만$ < 100백만$)"
@@ -2229,7 +2229,7 @@
   },
   {
    "symbol": "LEU",
-   "name": "Centrus Energy",
+   "name": "센트러스 에너지",
    "market": "US",
    "theme": "원전·SMR",
    "reason": "거래대금 부족 (87.6백만$ < 100백만$)"
@@ -2299,14 +2299,14 @@
   },
   {
    "symbol": "TON11419-USD",
-   "name": "Toncoin",
+   "name": "톤코인",
    "market": "CRYPTO",
    "theme": "코인·디지털자산",
    "reason": "데이터 기간 부족 (2일 < 400일, 2026-11-24 상장)"
   },
   {
    "symbol": "RENDER-USD",
-   "name": "Render",
+   "name": "렌더",
    "market": "CRYPTO",
    "theme": "AI·반도체",
    "reason": "거래대금 부족 (26.0백만$ < 30백만$)"
