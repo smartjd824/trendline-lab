@@ -406,6 +406,8 @@ def scan_all_assets(
         cur = _extract_bar_snapshot(ind, len(ind) - 1)
         prev = _extract_bar_snapshot(ind, len(ind) - 2)
         recent_dates = {cur["date"], prev["date"]}
+        _m20 = ind["ma20"].to_numpy(dtype=float)
+        ma20_chg5 = float((_m20[-1] / _m20[-6] - 1.0) * 100.0) if len(_m20) > 6 and np.isfinite(_m20[-6]) and _m20[-6] > 0 else None
 
         trades = bt.get("trades", [])
         last_trade = trades[-1] if trades else None
@@ -491,6 +493,7 @@ def scan_all_assets(
                 "change_pct": round(cur["chg_pct"], 2),
                 "ret5_pct": round(cur["ret5_pct"], 2),
                 "vol_ratio": round(cur["vol_ratio"], 2),
+                "ma20_chg5_pct": round(ma20_chg5, 2) if ma20_chg5 is not None else None,
                 "ma20": round(cur["ma20"], 4) if cur["ma20"] else None,
                 "ma20_slope": round(cur["ma20_slope"], 4) if cur["ma20_slope"] is not None else None,
                 "ma200": round(cur["ma200"], 4) if cur["ma200"] else None,

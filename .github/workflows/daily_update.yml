@@ -65,6 +65,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MY_HOLDINGS_JSON: ${{ secrets.MY_HOLDINGS_JSON }}  # 웹 '내 보유종목' 백업 JSON (비공개 보관)
         run: uv run python cloud_alert.py
 
       - name: 모의 성과 기록 커밋
