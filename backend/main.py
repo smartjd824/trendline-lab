@@ -18,12 +18,13 @@ from backend.backtester import (
     EXIT_RULES,
     STRATEGIES,
     clear_indicator_cache,
+    completed_bars_only_setting,
     get_cached_indicators,
     run_backtest_single,
     run_exit_rule_comparison,
     run_research_matrix,
 )
-from backend.data_loader import fetch_and_cache_symbols, get_cache_status, load_ohlcv
+from backend.data_loader import drop_incomplete_last_bar, fetch_and_cache_symbols, get_cache_status, load_ohlcv
 from backend.indicators import extract_current_trendlines
 from backend.notifier import dispatch_alerts
 from backend.scanner import scan_all_assets, scan_and_notify
@@ -58,6 +59,7 @@ class SettingsPayload(BaseModel):
     near_threshold_pct: float = 3.0
     active_strategy: str = "S5"
     exit_rule: str = "default"
+    completed_bars_only: bool = True
     alerts: dict[str, Any]
 
 
@@ -104,6 +106,8 @@ def api_chart(
     df = load_ohlcv(symbol, auto_fetch=True)
     if df.empty:
         raise HTTPException(status_code=503, detail=f"Failed to load data for {symbol}")
+    if completed_bars_only_setting():
+        df = drop_incomplete_last_bar(symbol, df)
 
     ind = get_cached_indicators(
         symbol,
@@ -236,6 +240,8 @@ def api_research(
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
     exit_rule: str = Query("default"),
+    fill_mode: str = Query("close", pattern="^(close|next_open)$"),
+    slippage_pct: float = Query(0.0, ge=0.0, le=2.0),
 ):
     return run_research_matrix(
         short_window=short_window,
@@ -245,6 +251,8 @@ def api_research(
         fee_rate=fee_rate,
         include_custom=False,
         exit_rule=exit_rule,
+        fill_mode=fill_mode,
+        slippage_pct=slippage_pct,
     )
 
 

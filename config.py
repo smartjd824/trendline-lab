@@ -42,6 +42,35 @@ MARKET_BEST_RULES: dict[str, dict[str, str]] = {
 }
 
 
+# 순환 모의 포트폴리오 규칙 (2026-11-26 고정 — 이후 실제 성과로 검증; 임의 수정 금지)
+#   rule 형식: "진입|청산|레짐@레짐정의" (strategy_lab.Cfg.parse)
+#   근거: strategy_lab.py walk/fixed, pullback_lab.py (2022~2026 연도별, 익일시가 체결, 실비용)
+ROTATION_START = "2022-01-01"  # 모의 포트폴리오 시작일 (경로 의존 상태를 재현 가능하게 고정)
+ROTATION_RULES: dict[str, dict[str, Any]] = {
+    "KOSPI": {"rule": "PB_TREND_REV|SLOW|RGX@TL", "slots": 10,
+              "label": "추세보유·늦은매도 + 지수추세선 필터", "basis": "고정규칙 2022~26: 연+39.0% MDD-49% Sh1.15 (B&H 연+25.2% MDD-41% Sh1.01)"},
+    "KOSDAQ": {"rule": "PB_TREND_REV|SLOW|RGX@TL", "slots": 20,
+               "label": "추세보유·늦은매도 + 지수추세선 필터", "basis": "고정규칙 2022~26: 연+31.6% MDD-40% Sh1.02 (B&H 연+22.2% MDD-47% Sh0.72)"},
+    "US": {"rule": "GC_OR_REV|MA50x2|RGX@TL", "slots": 20,
+           "label": "골든크로스/장기상단돌파 + 50일선이탈 + 지수필터", "basis": "워크포워드 2022~26: 연+23.4% MDD-20% Sh1.20 (B&H 연+24.3% MDD-28% Sh1.00)"},
+    "CRYPTO": {"rule": "GC_OR_REV|MA20x3|RG@TL", "slots": 20,
+               "label": "골든크로스/장기상단돌파 + 20일선3일이탈 + BTC필터", "basis": "워크포워드 2022~26: 연+12.8% MDD-52% (B&H 연-9.4% MDD-75%)"},
+}
+
+
+# 후보 규칙 비교용 모의 포트폴리오 (2026-11-27 고정). 같은 칸 수(slots)로 동시에 운영하고
+# '고정일 이후' 실제 성과로 최종 규칙을 고른다. 각 시장 규칙 형식은 ROTATION_RULES와 같음.
+ROTATION_FREEZE_DATE = "2026-11-27"
+ROTATION_CANDIDATES: dict[str, dict[str, Any]] = {
+    "CURRENT": {"label": "현재 규칙", "desc": "시장별 고정 규칙 (위 ROTATION_RULES)",
+                "rules": {m: v["rule"] for m, v in ROTATION_RULES.items()}},
+    "SLOPE": {"label": "A 기울기", "desc": "매수: 20일선 5일 상승 & 200일선 평평/상승 · 매도: 20일선 5일 -2% · 지수필터",
+              "rules": {m: "SLOPE|SLP2|RGX@TL" for m in ROTATION_RULES}},
+    "ORDER": {"label": "C 정배열", "desc": "매수: 5>20>40 정배열 & 20일선 상승 & 200일선 평평/상승 · 매도: 20일선 5일 -2% · 지수필터",
+              "rules": {m: "ORD5_20_40|SLP2|RGX@TL" for m in ROTATION_RULES}},
+}
+
+
 class AssetInfo(TypedDict):
     symbol: str
     name: str
@@ -54,7 +83,8 @@ def _a(symbol: str, name: str, market: str, theme: str, currency: str) -> AssetI
     return {"symbol": symbol, "name": name, "market": market, "theme": theme, "currency": currency}
 
 
-ASSETS: list[AssetInfo] = [
+# 기존 수동 선정 250종목 — 이제는 '후보 풀'로만 사용 (실제 서비스 종목은 universe.json)
+LEGACY_ASSETS: list[AssetInfo] = [
     # ==================== 국내 코스피 70종목 (KOSPI) ====================
     # AI·반도체
     _a("005930.KS", "삼성전자", "KOSPI", "AI·반도체", "KRW"),
@@ -352,8 +382,42 @@ INDICES: list[dict[str, Any]] = [
     {"symbol": "KRW=X", "name": "원/달러 환율", "group": "MACRO", "etf_tip": "외국인 수급", "unit": "원", "currency": "KRW", "market": "MACRO", "theme": "지수·매크로"},
     {"symbol": "^TNX", "name": "미국 10년 국채금리", "group": "MACRO", "etf_tip": "금리·밸류에이션", "unit": "%", "currency": "PCT", "market": "MACRO", "theme": "지수·매크로"},
 ]
+# 지수·ETF 그룹 (주식 순환 대상 제외 — 지수 보드에서 지수 매매 신호로 활용)
+INDICES += [
+    {"symbol": "069500.KS", "name": "ETF · KODEX 200", "group": "INDEX", "etf_tip": "코스피200 추종", "unit": "원", "currency": "KRW", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "229200.KS", "name": "ETF · KODEX 코스닥150", "group": "INDEX", "etf_tip": "코스닥150 추종", "unit": "원", "currency": "KRW", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "QQQ", "name": "ETF · QQQ (나스닥100)", "group": "INDEX", "etf_tip": "나스닥100 추종", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "SPY", "name": "ETF · SPY (S&P500)", "group": "INDEX", "etf_tip": "S&P500 추종", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "SOXX", "name": "ETF · SOXX (반도체)", "group": "INDEX", "etf_tip": "반도체 지수", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "GLD", "name": "ETF · GLD (금)", "group": "INDEX", "etf_tip": "금 현물", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+    {"symbol": "TLT", "name": "ETF · TLT (美 장기채)", "group": "INDEX", "etf_tip": "위기 방어 자산", "unit": "$", "currency": "USD", "market": "INDEX", "theme": "지수·매크로"},
+]
 INDEX_MAP: dict[str, dict[str, Any]] = {x["symbol"]: x for x in INDICES}
 
+# ==================== 종목 구성(Universe) 규칙 — 숫자만 바꾸면 개수 조정 ====================
+# build_universe.py 가 후보 풀(LEGACY_ASSETS + universe_pool.NEW_CANDIDATES)에 아래 규칙을 적용해
+# universe.json 을 만든다. 규칙을 바꾼 뒤:  uv run python build_universe.py
+UNIVERSE_RULES: dict[str, Any] = {
+    "min_bars": 400,  # 최소 데이터 일수 (200일선 + 180일 장기 추세선 계산에 필요)
+    # 최근 60일 하루 거래대금 중앙값 하한 (국내=원, 미국=달러, 코인=달러 거래량)
+    "min_liquidity": {"KOSPI": 30e8, "KOSDAQ": 15e8, "US": 100e6, "CRYPTO": 30e6},
+    # 시장별 최대 종목 수 (거래대금 상위부터). 늘리거나 줄이면 됨
+    "max_per_market": {"KOSPI": 120, "KOSDAQ": 120, "US": 150, "CRYPTO": 40},
+}
+UNIVERSE_PATH = BASE_DIR / "universe.json"
+
+
+def _load_universe() -> tuple[list[AssetInfo], list[dict[str, str]]]:
+    if UNIVERSE_PATH.exists():
+        try:
+            u = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
+            return u["assets"], u["themes"]
+        except Exception:
+            pass
+    return LEGACY_ASSETS, THEMES
+
+
+ASSETS, THEMES = _load_universe()
 ASSET_MAP: dict[str, AssetInfo] = {a["symbol"]: a for a in ASSETS}
 
 DEFAULT_SETTINGS = {
@@ -365,6 +429,8 @@ DEFAULT_SETTINGS = {
     "near_threshold_pct": 3.0,  # 돌파 임박 기준 (%)
     "active_strategy": "AUTO_BEST",
     "exit_rule": "default",
+    # 장중 미완성 일봉 제외: 신호·백테스트를 '마감된 봉' 기준으로만 계산 (10시 KST 실행 시 국내/코인 당일봉 제외)
+    "completed_bars_only": True,
     "alerts": {
         "macos_enabled": False,
         "telegram_enabled": False,

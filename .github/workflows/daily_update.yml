@@ -1,13 +1,20 @@
-name: Daily 10AM KST TrendLine Update & Telegram Alert
+name: TrendLine 하루 2회 갱신 & 텔레그램 알림 (아침 미국·코인 / 오후 한국·종합)
 
 on:
   schedule:
-    # 01:00 UTC == 매일 오전 10:00 KST (한국 시간)
-    - cron: "0 1 * * *"
+    # GitHub 예약 실행은 정각 혼잡으로 수십 분 늦게 시작될 수 있어(실측 최대 77분) 목표보다 일찍, 정각을 피해 예약
+    - cron: "47 22 * * *"  # 매일 07:47 KST 예약 → 08:30 전후 도착: 아침 리포트 (미국 전일 종가 + 코인 일봉 마감 직전)
+    - cron: "37 5 * * 1-5" # 평일 14:37 KST 예약 → 15:00 전후 도착: 오후 종합 리포트 (한국 장중 예비 종가)
   workflow_dispatch:
+    inputs:
+      session:
+        description: "리포트 종류"
+        type: choice
+        options: [AUTO, MORNING, AFTERNOON]
+        default: AUTO
 
 permissions:
-  contents: read
+  contents: write  # track/forward_log.csv 커밋 (실전 검증 기록 + 60일 무활동 자동중지 방지)
   pages: write
   id-token: write
 
@@ -22,6 +29,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Decide session (MORNING / AFTERNOON)
+        run: |
+          S="${{ github.event.inputs.session }}"
+          if [ "${{ github.event.schedule }}" = "47 22 * * *" ]; then S=MORNING; fi
+          if [ "${{ github.event.schedule }}" = "37 5 * * 1-5" ]; then S=AFTERNOON; fi
+          if [ -z "$S" ] || [ "$S" = "AUTO" ]; then
+            H=$(TZ=Asia/Seoul date +%H); if [ "$H" -lt 12 ]; then S=MORNING; else S=AFTERNOON; fi
+          fi
+          echo "REPORT_SESSION=$S" >> "$GITHUB_ENV"
+          # 오후: 한국 장중 봉을 '예비 종가'로 사용 (코인·미국은 확정 봉만)
+          if [ "$S" = "AFTERNOON" ]; then echo "TRENDLINE_PARTIAL_OK=KR" >> "$GITHUB_ENV"; fi
+          echo "Session=$S (KST $(TZ=Asia/Seoul date '+%F %H:%M'))"
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -30,7 +50,7 @@ jobs:
       - name: Install Python dependencies
         run: uv sync
 
-      - name: Fetch latest 7.6-year market data (250 themed assets)
+      - name: Fetch latest 7.6-year market data
         run: |
           uv run python -c "from backend.data_loader import fetch_and_cache_symbols; res = fetch_and_cache_symbols(years=7.6, force=True); print('Updated:', len(res['updated']), 'Failed:', len(res['failed']))"
 
@@ -39,38 +59,22 @@ jobs:
           SITE_PASSCODE: ${{ secrets.SITE_PASSCODE }}
         run: uv run python build_static_site.py
 
-      - name: Send daily Telegram / Discord alert from cloud
+      - name: Send Telegram / Discord alert + append forward-test log
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: uv run python cloud_alert.py
+
+      - name: Commit forward-test log
         run: |
-          uv run python -c "
-          import os
-          from backend.scanner import scan_all_assets, format_full_alert_report
-          from backend.notifier import dispatch_alerts
-
-          tg_token = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
-          tg_chat = os.environ.get('TELEGRAM_CHAT_ID', '').strip()
-          dc_url = os.environ.get('DISCORD_WEBHOOK_URL', '').strip()
-
-          if not (tg_token and tg_chat) and not dc_url:
-              print('No cloud alert secrets configured — skipping cloud notification.')
-              raise SystemExit(0)
-
-          scan = scan_all_assets(strategy_id='AUTO_BEST')
-          title, full_text, mac_sum, triggered = format_full_alert_report(scan, include_near=True)
-          cfg = {
-              'macos_enabled': False,
-              'telegram_enabled': bool(tg_token and tg_chat),
-              'telegram_bot_token': tg_token,
-              'telegram_chat_id': tg_chat,
-              'discord_enabled': bool(dc_url),
-              'discord_webhook_url': dc_url,
-          }
-          res = dispatch_alerts(title, full_text, cfg)
-          print('Cloud Alert Results:', res)
-          "
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add track/forward_log.csv
+          if git diff --cached --quiet; then echo "no log change"; exit 0; fi
+          git commit -m "모의 포트폴리오 실전 기록 ${REPORT_SESSION} $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git pull --rebase --autostash || true
+          git push || echo "::warning::forward log push failed"
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3

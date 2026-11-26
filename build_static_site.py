@@ -193,7 +193,9 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
     # 4. Precompute scanners (AUTO_BEST + S1, S2, S3, S5) + full daily report
     auto_scan = scan_all_assets(strategy_id="AUTO_BEST")
     _write_json(DOCS_DIR / "data" / "scanner_AUTO_BEST.json", auto_scan)
-    title, full_text, mac_sum, triggered = format_full_alert_report(auto_scan, include_near=True)
+    title, full_text, mac_sum, triggered = format_full_alert_report(
+        auto_scan, include_near=True, session=os.environ.get("REPORT_SESSION") or None
+    )
     _write_json(
         DOCS_DIR / "data" / "latest_report.json",
         {
@@ -219,7 +221,7 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
         payload = _build_chart_payload(asset, ind)
         _write_json(DOCS_DIR / "data" / "charts" / f"{_safe_sym(sym)}.json", payload)
         charts_written += 1
-    print(f"[Build] Wrote {charts_written} chart JSON files (250 assets + 10 indices).", flush=True)
+    print(f"[Build] Wrote {charts_written} chart JSON files.", flush=True)
 
     # 6. Meta + optional SHA-256 passcode lock
     pass_hash = hashlib.sha256(passcode.strip().encode("utf-8")).hexdigest() if passcode.strip() else ""

@@ -135,7 +135,7 @@ async function ensureUnlocked(meta) {
 function configureStaticModeUI(meta) {
   if (!IS_STATIC) return;
   $("syncBtn").style.display = "none";
-  $("cacheStatusBadge").textContent = `매일 10:00 자동갱신 · ${meta.generated_at || ""}`;
+  $("cacheStatusBadge").textContent = `매일 08:30·15:00 자동갱신 · ${meta.generated_at || ""}`;
   $("cacheStatusBadge").classList.add("ready");
   // Hide local-only controls that require live backend recomputation
   ["applyChartParamsBtn", "toggleCustomBuilderBtn", "refreshResearchBtn", "runScannerBtn", "sendAlertsNowBtn"].forEach((id) => {
@@ -146,8 +146,8 @@ function configureStaticModeUI(meta) {
     alertCard.innerHTML = `
       <div class="card-title">🌐 클라우드 자동 알림 안내</div>
       <div class="cli-tip">
-        <div class="cli-tip-title">매일 오전 10:00 (KST) 자동 실행</div>
-        <p>GitHub Actions 클라우드 서버가 맥(Mac)이 꺼져 있어도 매일 오전 10시에 150개 종목을 최신화하고, 웹페이지 갱신 및 텔레그램 알림을 자동 발송합니다.</p>
+        <div class="cli-tip-title">매일 08:30 (미국·코인) · 평일 15:00 (한국·종합) 자동 실행</div>
+        <p>GitHub Actions 클라우드 서버가 맥(Mac)이 꺼져 있어도 아침 8시 30분(미국·코인)과 평일 오후 3시(한국 장중 예비·종합)에 전체 종목을 최신화하고, 웹페이지 갱신 및 텔레그램 알림을 자동 발송합니다.</p>
         <p style="margin-top:6px;">텔레그램 토큰·비밀번호 변경은 GitHub 저장소 <b>Settings → Secrets → Actions</b>에서 언제든 수정할 수 있습니다.</p>
       </div>`;
   }
@@ -195,7 +195,7 @@ async function init() {
     renderAssetList();
 
     if (!IS_STATIC && meta.cache.cached === 0) {
-      showToast("250개 종목 초기 데이터를 불러오는 중입니다...");
+      showToast("전체 종목 초기 데이터를 불러오는 중입니다...");
       await syncMarketData(false);
     }
 
@@ -1074,7 +1074,7 @@ function renderResearchViews() {
   const { recommendations, strategies } = state.researchData;
   const mkt = state.researchMarket;
   const scopeNames = {
-    ALL: "전체 250종목",
+    ALL: "전체 전체 종목",
     KOSPI: "코스피 70종목",
     KOSDAQ: "코스닥 70종목",
     US: "미국주식 80종목",
@@ -1084,7 +1084,7 @@ function renderResearchViews() {
 
   // Recommendation cards
   const cardDefs = [
-    { key: "ALL", title: "🏆 전체 250종목 최적", highlight: true },
+    { key: "ALL", title: "🏆 전체 전체 종목 최적", highlight: true },
     { key: "KOSPI", title: "🇰🇷 코스피 70 최적" },
     { key: "KOSDAQ", title: "🚀 코스닥 70 최적" },
     { key: "US", title: "🇺🇸 미국 80 최적" },
@@ -1460,7 +1460,9 @@ async function loadScanner() {
     (data.indices || []).forEach((ix) => {
       state.scannerMap[ix.symbol] = ix;
     });
+    if (data.rotation && data.rotation.markets) state.rotationData = data.rotation;
     renderTop30Board();
+    renderRotationCard();
     renderPortfolioTab();
     renderScannerView();
     if (state.chartPayload) renderTradePlanCard();
@@ -1550,7 +1552,7 @@ function renderMarketThermometer(mr) {
   const grid = $("marketThermometerGrid");
   if (!grid || !mr) return;
   const all = mr.ALL || {};
-  $("marketRegimeOverall").textContent = `전체 250종목 중 MA200 위 ${all.ma200_above_pct ?? 0}% · 💎 과매도 ${all.oversold_count ?? 0}종목`;
+  $("marketRegimeOverall").textContent = `전체 전체 종목 중 MA200 위 ${all.ma200_above_pct ?? 0}% · 💎 과매도 ${all.oversold_count ?? 0}종목`;
 
   const defs = [
     { key: "KOSPI", label: "🇰🇷 코스피 (70)" },
@@ -2099,3 +2101,87 @@ async function sendAlertsNow() {
 }
 
 init();
+
+
+/* ==================== PAPER ROTATION PORTFOLIO ==================== */
+function renderRotationCard() {
+  const grid = $("rotationGrid");
+  if (!grid) return;
+  const rot = state.rotationData;
+  if (!rot || !rot.markets || Object.keys(rot.markets).length === 0) {
+    grid.innerHTML = `<div class="muted">${rot && rot.error ? "순환 포트폴리오 계산 오류: " + escHtml(rot.error) : "시장별 최적(AUTO_BEST) 스캔에서 표시됩니다."}</div>`;
+    return;
+  }
+  const labels = { KOSPI: "🇰🇷 코스피", KOSDAQ: "🚀 코스닥", US: "🇺🇸 미국", CRYPTO: "🪙 코인" };
+  const pct = (v, d = 0) => `<span class="${v >= 0 ? "pos" : "neg"}">${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}%</span>`;
+  $("rotationMeta").textContent = `${rot.start}부터 재생 · 규칙은 2026-11-26 고정 (이후 성과가 진짜 검증)`;
+  grid.innerHTML = Object.entries(rot.markets)
+    .map(([mkt, m]) => {
+      const ps = m.perf_since_start, bs = m.bnh_since_start, py = m.perf_ytd, by = m.bnh_ytd;
+      const buys = m.orders_next_open.buy.map((x) => escHtml(x.name)).join(", ") || "없음";
+      const sells = m.orders_next_open.sell.map((x) => escHtml(x.name)).join(", ") || "없음";
+      const holds = m.holdings.length
+        ? m.holdings
+            .map(
+              (h) => `<div data-sym="${escHtml(h.symbol)}" title="${escHtml(h.entry_date)} 진입 @ ${fmtPrice(h.entry_price, h.currency)}"><span>${h.sell_next_open ? "🔻 " : ""}${escHtml(h.name)}</span><span>${pct(h.return_pct, 1)} · ${h.weight_pct.toFixed(0)}%</span></div>`
+            )
+            .join("")
+        : `<div class="muted">보유 없음 (현금 ${m.cash_pct.toFixed(0)}%)</div>`;
+      return `
+        <div class="rot-box">
+          <div class="rot-head"><span>${labels[mkt] || mkt}</span><span class="rot-badge ${m.regime_on ? "on" : "off"}">지수필터 ${m.regime_on ? "ON" : "OFF · 현금화"}</span></div>
+          <div class="muted" title="${escHtml(m.basis)}">${escHtml(m.label)} · ${m.slots}칸</div>
+          <div class="rot-perf">
+            <div class="muted">누적</div><div>${pct(ps.ret)} <span class="muted">(보유 ${pct(bs.ret)})</span></div>
+            <div class="muted">올해</div><div>${pct(py.ret, 1)} <span class="muted">(보유 ${pct(by.ret, 1)})</span></div>
+            <div class="muted">최대낙폭</div><div>${pct(ps.mdd)} <span class="muted">(보유 ${pct(bs.mdd)})</span></div>
+            <div class="muted">기준일</div><div>${escHtml(m.as_of)}</div>
+          </div>
+          <div class="rot-orders">▶ <b>다음 시가 매수</b>: ${buys}<br>▶ <b>다음 시가 매도</b>: ${sells}</div>
+          <div class="muted">보유 ${m.holdings.length}/${m.slots} · 현금 ${m.cash_pct.toFixed(0)}%</div>
+          <div class="rot-hold">${holds}</div>
+        </div>`;
+    })
+    .join("");
+  grid.querySelectorAll(".rot-hold div[data-sym]").forEach((el) => {
+    el.addEventListener("click", () => jumpToChart(el.dataset.sym, "S3"));
+  });
+  renderRotationCompare(rot.compare, labels, pct);
+}
+
+function renderRotationCompare(cmp, labels, pct) {
+  const body = $("rotationCompareBody");
+  if (!body) return;
+  if (!cmp || !cmp.markets) {
+    body.innerHTML = `<tr><td colspan="8" class="muted">비교 데이터가 없습니다.</td></tr>`;
+    return;
+  }
+  $("rotationCompareMeta").textContent = `규칙 고정일 ${cmp.freeze_date}`;
+  $("rotationCompareLegend").innerHTML = (cmp.candidates || [])
+    .map((c) => `<b>${escHtml(c.label)}</b>: ${escHtml(c.desc)}`)
+    .join(" &nbsp;|&nbsp; ");
+  const cell = (p, d = 1) => (p ? pct(p.ret, d) : `<span class="muted">시작 전</span>`);
+  const rows = [];
+  Object.entries(cmp.markets).forEach(([mkt, m]) => {
+    const best = Math.max(...m.rows.map((r) => (r.since_freeze ? r.since_freeze.ret : -1e9)));
+    m.rows.forEach((r, i) => {
+      const orders = [
+        r.buy_next_open.length ? `매수 ${r.buy_next_open.map(escHtml).join(", ")}` : "",
+        r.sell_next_open.length ? `매도 ${r.sell_next_open.map(escHtml).join(", ")}` : "",
+      ].filter(Boolean).join(" / ") || `<span class="muted">없음</span>`;
+      const star = r.since_freeze && r.since_freeze.ret === best && m.rows.filter((x) => x.since_freeze).length > 1 ? " 🏆" : "";
+      rows.push(`<tr>
+        ${i === 0 ? `<td rowspan="${m.rows.length + 1}"><b>${labels[mkt] || mkt}</b><div class="muted">${m.slots}칸 · ${escHtml(m.as_of)}</div></td>` : ""}
+        <td title="${escHtml(r.rule)}">${escHtml(r.label)}${star}</td>
+        <td>${cell(r.since_freeze)} <span class="muted">${r.forward_days ? r.forward_days + "일" : ""}</span></td>
+        <td>${pct(r.ytd.ret, 1)}</td><td>${pct(r.since_start.ret)}</td><td>${pct(r.since_start.mdd)}</td>
+        <td>${r.holdings}/${m.slots}</td><td style="max-width:280px">${orders}</td></tr>`);
+    });
+    rows.push(`<tr class="muted"><td>단순보유</td><td>${cell(m.bnh.since_freeze)}</td><td>${pct(m.bnh.ytd.ret, 1)}</td><td>${pct(m.bnh.since_start.ret)}</td><td>${pct(m.bnh.since_start.mdd)}</td><td>-</td><td>-</td></tr>`);
+  });
+  body.innerHTML = rows.join("");
+}
+
+function escHtml(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}

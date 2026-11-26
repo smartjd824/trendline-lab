@@ -814,9 +814,20 @@ def scan_all_assets(
                 }
             )
 
+    # 6. 순환 모의 포트폴리오 (고정 규칙; AUTO_BEST 스캔에서만 계산)
+    rotation = None
+    if strategy_id == "AUTO_BEST":
+        try:
+            from backend.rotation import compute_rotation
+
+            rotation = compute_rotation(ind_map)
+        except Exception as exc:  # 리포트 전체가 실패하지 않도록 격리
+            rotation = {"error": str(exc), "markets": {}}
+
     return {
         "scanned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "strategy_id": strategy_id,
+        "rotation": rotation,
         "strategy_name": strat_name,
         "counts": counts,
         "rating_counts": rating_counts,
@@ -828,7 +839,17 @@ def scan_all_assets(
     }
 
 
-def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) -> tuple[str, str, str, list[dict[str, Any]]]:
+SESSIONS = {
+    "MORNING": {"title": "아침 리포트 · 미국·코인", "markets": ["US", "CRYPTO"],
+                "guide": "⏰ 미국: 전일 종가 확정 → 오늘 밤 개장(23:30, 서머타임 22:30)에 주문 · 코인: 일봉 마감(09:00) 직전 가격 기준 → 받는 즉시 주문"},
+    "AFTERNOON": {"title": "오후 종합 리포트 · 한국 장중 예비", "markets": None,
+                  "guide": "⏰ 한국: 장중(약 14:30~15:00) 가격을 '예비 종가'로 계산 → 종가 동시호가(15:20~15:30) 주문, 늦으면 내일 9시 시가 · 미국·코인: 아침 신호 참고"},
+}
+
+
+def format_full_alert_report(
+    scan: dict[str, Any], include_near: bool = True, markets: list[str] | None = None, session: str | None = None
+) -> tuple[str, str, str, list[dict[str, Any]]]:
     """
     Build complete un-truncated report headed by:
     - Market Regime Thermometer
@@ -837,18 +858,23 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
     - RSI Oversold Buy Candidates
     - ALL triggered BUY / NEAR stocks
     """
-    items = scan["items"]
+    sess = SESSIONS.get(session or "")
+    if sess and markets is None:
+        markets = sess["markets"]
+    items = scan["items"] if not markets else [x for x in scan["items"] if x["market"] in markets]
     buys = [x for x in items if x["signal"] == "BUY"]
     sells = [x for x in items if x["signal"] == "SELL"]
     nears = [x for x in items if x["signal"] == "NEAR"] if include_near else []
     triggered = buys + sells + nears
 
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    title = f"[추세선 {len(items)}종목 알림 · {date_str}] 매수 {len(buys)} · 임박 {len(nears)} · 과매도 {scan.get('oversold_total', 0)}"
+    oversold_n = sum(1 for x in items if x["rsi14"] is not None and x["rsi14"] <= 36.0)
+    head = f"{sess['title']} · " if sess else ""
+    title = f"[{head}추세선 {len(items)}종목 · {date_str}] 매수 {len(buys)} · 임박 {len(nears)} · 과매도 {oversold_n}"
 
     mr = scan.get("market_regime", {})
     rc = scan.get("rating_counts", {})
-    sections: list[str] = []
+    sections: list[str] = [sess["guide"], ""] if sess else []
 
     idx_list = scan.get("indices", [])
     if idx_list:
@@ -900,6 +926,12 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
             sections.append(
                 f"  • [{it['theme']}] {it['name']}({it['symbol']}) {p_str} · RSI {it['rsi14']} · 확률 {it['upside_prob']:.1f}% ({it['rating_label']})"
             )
+
+    rot = scan.get("rotation")
+    if rot and rot.get("markets"):
+        from backend.rotation import format_rotation_report
+
+        sections.extend(format_rotation_report(rot, markets=markets))
 
     def _add_group(header: str, group: list[dict[str, Any]]) -> None:
         if not group:

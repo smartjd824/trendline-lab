@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -73,6 +74,96 @@ def _normalize_yf_df(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
     df.index = idx.strftime("%Y-%m-%d")
     df = df[~df.index.duplicated(keep="last")].sort_index()
     return df
+
+
+# Hours after 00:00 of a bar's (exchange-local, tz-stripped) date when that daily bar is final.
+#   KR: 15:30 KST close == 06:30 UTC on the same date (+15m buffer)
+#   US: 16:00 ET close == 21:00 UTC (EST) / 20:00 UTC (EDT) (+15m buffer)
+#   CRYPTO: yfinance daily crypto bars are UTC days → final at next 00:00 UTC
+#   FX/Futures (KRW=X, GC=F): nearly 24h sessions → treat as final at 22:00 UTC
+#   CRYPTO는 아침 리포트(07:47 KST 예약 · 08:30 전후 도착)에서 마감 직전 일봉을 쓰도록 22.5h(07:30 KST)부터 확정으로 간주
+#   (24h 중 94% 경과 — 남은 1.5시간 변동은 15시 리포트에서 최종 종가로 다시 계산됨)
+_BAR_FINAL_OFFSET_HOURS = {"KR": 6.75, "US": 21.25, "CRYPTO": 22.5, "FX": 22.0}
+
+
+def _partial_ok_groups() -> set[str]:
+    """TRENDLINE_PARTIAL_OK="KR" 이면 해당 시장의 장중 봉을 '예비 종가'로 사용 (15시 장중 예비 신호용)."""
+    import os
+
+    return {g.strip().upper() for g in os.environ.get("TRENDLINE_PARTIAL_OK", "").split(",") if g.strip()}
+
+
+def _session_group(symbol: str) -> str:
+    asset = ASSET_MAP.get(symbol)
+    if asset is not None:
+        mkt = asset["market"]
+        return "KR" if mkt in ("KOSPI", "KOSDAQ") else ("CRYPTO" if mkt == "CRYPTO" else "US")
+    if symbol in ("^KS11", "^KQ11") or symbol.endswith((".KS", ".KQ")):  # KR indices & KR-listed ETFs
+        return "KR"
+    if symbol.endswith("-USD"):
+        return "CRYPTO"
+    if symbol.endswith("=X") or symbol.endswith("=F"):
+        return "FX"
+    return "US"
+
+
+def is_bar_complete(symbol: str, bar_date: str, now_utc: datetime | None = None) -> bool:
+    """True if the daily bar dated `bar_date` has closed (no longer an intraday partial candle)."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    try:
+        bar_day = datetime.strptime(str(bar_date)[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    final_at = bar_day + timedelta(hours=_BAR_FINAL_OFFSET_HOURS[_session_group(symbol)])
+    return now_utc >= final_at
+
+
+def drop_incomplete_last_bar(symbol: str, df: pd.DataFrame, now_utc: datetime | None = None) -> pd.DataFrame:
+    """
+    Remove today's still-forming candle so signals are computed on CLOSED bars only.
+    The backtest assumes fills at the daily close; evaluating a 1-hour-old partial bar
+    (e.g. the 10:00 KST cloud run for KOSPI/KOSDAQ/CRYPTO) creates signals that can vanish by the close.
+    """
+    if df is None or df.empty:
+        return df
+    if _session_group(symbol) in _partial_ok_groups():
+        return df
+    if is_bar_complete(symbol, str(df["date"].iloc[-1]), now_utc):
+        return df
+    return df.iloc[:-1].reset_index(drop=True)
+
+
+def sanitize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Repair / trim known Yahoo data defects before any indicator or backtest touches them:
+      * rows with a zero/negative price (e.g. first bars of AAVE, ICP, PEPE, SHIB have open=0)
+      * high/low not bracketing open/close (split/dividend-adjustment rounding on many KR tickers)
+      * token-migration glitches: a single-day close ratio >20x or <1/20x (AAVE 0.52→53, TAO 0.13→87).
+        Real moves of that size in one day do not occur in this universe, so history BEFORE the glitch is dropped.
+    """
+    if df is None or df.empty:
+        return df
+    px = df[["open", "high", "low", "close"]]
+    df = df[(px > 0).all(axis=1)].copy()
+    if df.empty:
+        return df
+    df["high"] = df[["high", "open", "close"]].max(axis=1)
+    df["low"] = df[["low", "open", "close"]].min(axis=1)
+    ratio = df["close"] / df["close"].shift(1)
+    bad = (ratio > 20.0) | (ratio < 0.05)
+    if bad.any():
+        cut = int(np.flatnonzero(bad.to_numpy())[-1])
+        df = df.iloc[cut:]
+    return df.reset_index(drop=True)
+
+
+def is_low_precision(df: pd.DataFrame, lookback: int = 250, min_unique_ratio: float = 0.3) -> bool:
+    """
+    True if prices are quantized so coarsely that MA/trendline signals are noise
+    (Yahoo rounds sub-$0.00001 coins: PEPE has 27 distinct closes in 1,305 bars, SHIB 62 in 2,049).
+    """
+    tail = df["close"].tail(lookback)
+    return len(tail) >= 50 and tail.nunique() / len(tail) < min_unique_ratio
 
 
 def fetch_and_cache_symbols(
@@ -201,6 +292,7 @@ def load_ohlcv(symbol: str, auto_fetch: bool = True) -> pd.DataFrame:
         conn.close()
 
     if not df.empty:
+        df = sanitize_ohlcv(df)
         df["date_dt"] = pd.to_datetime(df["date"])
     return df
 
@@ -223,7 +315,9 @@ def load_all_cached_ohlcv() -> dict[str, pd.DataFrame]:
         return result
     for sym, grp in all_df.groupby("symbol", sort=False):
         if sym in ASSET_MAP or sym in INDEX_MAP:
-            g = grp.drop(columns=["symbol"]).reset_index(drop=True)
+            g = sanitize_ohlcv(grp.drop(columns=["symbol"]).reset_index(drop=True))
+            if g.empty:
+                continue
             g["date_dt"] = pd.to_datetime(g["date"])
             result[str(sym)] = g
     return result

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import pickle
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -9,8 +10,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, INDEX_MAP, INDICES, MARKETS, THEMES
-from backend.data_loader import load_all_cached_ohlcv, load_ohlcv
+from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, INDEX_MAP, INDICES, MARKETS, THEMES, load_settings
+from backend.data_loader import drop_incomplete_last_bar, is_low_precision, load_all_cached_ohlcv, load_ohlcv
 from backend.indicators import compute_indicator_frame
 
 # MA200 10-bar % change threshold for "평평하거나 미세하게 상승"
@@ -113,9 +114,23 @@ DEFAULT_CUSTOM_PARAMS: dict[str, Any] = {
 _IND_CACHE: dict[tuple, pd.DataFrame] = {}
 
 
-def _disk_cache_path(symbol: str, short_w: int, long_w: int, price_src: str, scale: str, last_date: str, rows: int):
-    safe_sym = symbol.replace("/", "_").replace(".", "_")
-    return IND_CACHE_DIR / f"v2_{safe_sym}_{short_w}_{long_w}_{price_src}_{scale}_{last_date}_{rows}.pkl"
+def _disk_cache_prefix(symbol: str, short_w: int, long_w: int, price_src: str, scale: str) -> str:
+    safe_sym = symbol.replace("/", "_").replace(".", "_").replace("^", "IDX_").replace("=", "_")
+    return f"v3_{safe_sym}_{short_w}_{long_w}_{price_src}_{scale}_"
+
+
+def _disk_cache_path(symbol: str, short_w: int, long_w: int, price_src: str, scale: str, fingerprint: str):
+    return IND_CACHE_DIR / f"{_disk_cache_prefix(symbol, short_w, long_w, price_src, scale)}{fingerprint}.pkl"
+
+
+def _df_fingerprint(df: pd.DataFrame) -> str:
+    """
+    Cache fingerprint: last date + row count + last bar OHLCV.
+    (date+rows alone served STALE indicators when an intraday bar was re-synced with new prices.)
+    """
+    last = df.iloc[-1]
+    raw = f"{last['date']}|{len(df)}|{float(last['open']):.8g}|{float(last['high']):.8g}|{float(last['low']):.8g}|{float(last['close']):.8g}|{float(last['volume']):.8g}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def get_cached_indicators(
@@ -130,14 +145,13 @@ def get_cached_indicators(
         df = load_ohlcv(symbol)
     if df.empty:
         return df
-    last_date = str(df["date"].iloc[-1])
-    rows = len(df)
-    key = (symbol, short_window, long_window, price_source, scale_mode, last_date, rows)
+    fingerprint = _df_fingerprint(df)
+    key = (symbol, short_window, long_window, price_source, scale_mode, fingerprint)
     cached = _IND_CACHE.get(key)
     if cached is not None:
         return cached
 
-    cache_file = _disk_cache_path(symbol, short_window, long_window, price_source, scale_mode, last_date, rows)
+    cache_file = _disk_cache_path(symbol, short_window, long_window, price_source, scale_mode, fingerprint)
     if cache_file.exists():
         try:
             with cache_file.open("rb") as f:
@@ -156,6 +170,11 @@ def get_cached_indicators(
     )
     _IND_CACHE[key] = ind
     try:
+        # Prune superseded cache files for this symbol/params (previously grew without bound: 1 file/day/symbol)
+        prefix = _disk_cache_prefix(symbol, short_window, long_window, price_source, scale_mode)
+        for old in IND_CACHE_DIR.glob(f"{prefix}*.pkl"):
+            if old != cache_file:
+                old.unlink(missing_ok=True)
         with cache_file.open("wb") as f:
             pickle.dump(ind, f, protocol=pickle.HIGHEST_PROTOCOL)
     except Exception:
@@ -168,13 +187,25 @@ def build_indicator_map(
     long_window: int = 180,
     price_source: str = "wick",
     scale_mode: str = "linear",
+    completed_only: bool | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Load/compute indicator frames for all assets in parallel (uses memory + disk cache)."""
+    """
+    Load/compute indicator frames for all assets in parallel (uses memory + disk cache).
+    completed_only (default: settings `completed_bars_only`, True) drops each symbol's still-forming daily candle.
+    """
+    if completed_only is None:
+        completed_only = completed_bars_only_setting()
+    _purge_legacy_cache_files()
     all_dfs = load_all_cached_ohlcv()
     tasks = []
     for asset in list(ASSETS) + list(INDICES):
         sym = asset["symbol"]
         df = all_dfs.get(sym)
+        if df is not None and is_low_precision(df):
+            # quantized prices (PEPE/SHIB) → MA/trendline signals would be pure noise; exclude from signals
+            continue
+        if df is not None and completed_only:
+            df = drop_incomplete_last_bar(sym, df)
         if df is not None and len(df) >= 220:
             tasks.append((sym, df))
 
@@ -194,6 +225,27 @@ def build_indicator_map(
         for sym, ind in pool.map(_work, tasks):
             ind_map[sym] = ind
     return ind_map
+
+
+_LEGACY_PURGED = False
+
+
+def _purge_legacy_cache_files() -> None:
+    """Delete indicator pickles written by older cache-key formats (v1/v2), which were never cleaned up."""
+    global _LEGACY_PURGED
+    if _LEGACY_PURGED:
+        return
+    _LEGACY_PURGED = True
+    for p in IND_CACHE_DIR.glob("*.pkl"):
+        if not p.name.startswith("v3_"):
+            p.unlink(missing_ok=True)
+
+
+def completed_bars_only_setting() -> bool:
+    try:
+        return bool(load_settings().get("completed_bars_only", True))
+    except Exception:
+        return True
 
 
 def clear_indicator_cache() -> None:
@@ -417,8 +469,17 @@ def run_backtest_single(
     custom_params: dict[str, Any] | None = None,
     include_series: bool = False,
     exit_rule: str = "default",
+    fill_mode: str = "close",
+    slippage_pct: float = 0.0,
 ) -> dict[str, Any]:
-    """Run causal backtest for a single symbol over the last `years` (2, 4, or 6)."""
+    """
+    Run causal backtest for a single symbol over the last `years` (2, 4, or 6).
+
+    fill_mode:
+      - "close"     : fill at the signal bar's close (default; assumes 장 마감 동시호가 체결 — optimistic)
+      - "next_open" : signal decided on bar t close, filled at bar t+1 open (realistic for 장 마감 후 확인 후 다음날 주문)
+    slippage_pct: extra adverse price impact per side (%), on top of fee_rate.
+    """
     asset = ASSET_MAP.get(symbol) or INDEX_MAP.get(symbol) or {"symbol": symbol, "name": symbol, "market": "UNKNOWN", "currency": "USD", "theme": "기타"}
     if ind.empty or len(ind) < 220:
         return {
@@ -469,6 +530,13 @@ def run_backtest_single(
     else:
         stop_loss_pct, take_profit_pct = 8.0, 0.0
 
+    op = ind["open"].to_numpy(dtype=np.float64)
+    slip = max(float(slippage_pct), 0.0) / 100.0
+    next_open = fill_mode == "next_open"
+    pending_entry = False
+    pending_entry_reason = ""
+    pending_exit_reason: str | None = None
+
     cash = 1.0
     shares = 0.0
     in_pos = False
@@ -485,8 +553,49 @@ def run_backtest_single(
 
     bnh_base = cl[start_idx]
 
+    def _open(t: int, fill_px: float, reason: str) -> None:
+        nonlocal entry_price, peak_price_in_pos, shares, cash, in_pos, entry_idx, entry_date, entry_reason_str
+        entry_price = fill_px
+        peak_price_in_pos = max(fill_px, cl[t])
+        shares = (cash * (1.0 - fee_rate)) / entry_price
+        cash = 0.0
+        in_pos = True
+        entry_idx = t
+        entry_date = dates[t]
+        entry_reason_str = reason
+
+    def _close(t: int, fill_px: float, reason: str) -> None:
+        nonlocal cash, shares, in_pos
+        cash = shares * fill_px * (1.0 - fee_rate)
+        shares = 0.0
+        in_pos = False
+        net_ret = ((fill_px * (1.0 - fee_rate)) / (entry_price * (1.0 + fee_rate)) - 1.0) * 100.0
+        trades.append(
+            {
+                "entry_date": entry_date,
+                "exit_date": dates[t],
+                "entry_price": round(entry_price, 6),
+                "exit_price": round(fill_px, 6),
+                "return_pct": round(net_ret, 2),
+                "holding_days": t - entry_idx,
+                "entry_reason": entry_reason_str,
+                "exit_reason": reason,
+                "open": False,
+            }
+        )
+
     for t in range(start_idx, len(ind)):
         price = cl[t]
+
+        # next_open mode: execute orders decided at the previous bar's close at today's open
+        if next_open:
+            if pending_exit_reason is not None and in_pos:
+                _close(t, op[t] * (1.0 - slip), pending_exit_reason)
+            elif pending_entry and not in_pos:
+                _open(t, op[t] * (1.0 + slip), pending_entry_reason)
+            pending_exit_reason = None
+            pending_entry = False
+
         if in_pos:
             if price > peak_price_in_pos:
                 peak_price_in_pos = price
@@ -537,39 +646,22 @@ def run_backtest_single(
                     rule_exit, rule_reason = True, "MA20·MA200 데드크로스 청산"
 
             if stop_hit or tp_hit or (rule_exit and min_hold_ok):
-                exit_price = price
-                cash = shares * exit_price * (1.0 - fee_rate)
-                shares = 0.0
-                in_pos = False
-                net_ret = ((exit_price * (1.0 - fee_rate)) / (entry_price * (1.0 + fee_rate)) - 1.0) * 100.0
                 reason = (
                     f"손절 (-{stop_loss_pct:.0f}%)"
                     if stop_hit
                     else (f"목표 익절 (+{take_profit_pct:.0f}%)" if tp_hit else rule_reason)
                 )
-                trades.append(
-                    {
-                        "entry_date": entry_date,
-                        "exit_date": dates[t],
-                        "entry_price": round(entry_price, 6),
-                        "exit_price": round(exit_price, 6),
-                        "return_pct": round(net_ret, 2),
-                        "holding_days": t - entry_idx,
-                        "entry_reason": entry_reason_str,
-                        "exit_reason": reason,
-                        "open": False,
-                    }
-                )
+                if next_open:
+                    pending_exit_reason = reason
+                else:
+                    _close(t, price * (1.0 - slip), reason)
         else:
             if buy_sig[t]:
-                entry_price = price
-                peak_price_in_pos = price
-                shares = (cash * (1.0 - fee_rate)) / entry_price
-                cash = 0.0
-                in_pos = True
-                entry_idx = t
-                entry_date = dates[t]
-                entry_reason_str = buy_reason[t]
+                if next_open:
+                    pending_entry = True
+                    pending_entry_reason = buy_reason[t]
+                else:
+                    _open(t, price * (1.0 + slip), buy_reason[t])
 
         eq = (shares * price) if in_pos else cash
         if eq > peak_eq:
@@ -666,6 +758,8 @@ def run_research_matrix(
     include_custom: bool = False,
     custom_params: dict[str, Any] | None = None,
     exit_rule: str = "default",
+    fill_mode: str = "close",
+    slippage_pct: float = 0.0,
 ) -> dict[str, Any]:
     """
     Run full 30-asset × (S1..S5 [+ S6]) × (2Y, 4Y, 6Y) comparison matrix.
@@ -709,6 +803,8 @@ def run_research_matrix(
                     custom_params=custom_params,
                     include_series=False,
                     exit_rule=exit_rule,
+                    fill_mode=fill_mode,
+                    slippage_pct=slippage_pct,
                 )
                 if "error" not in res:
                     rows.append(res)
@@ -818,6 +914,8 @@ def run_research_matrix(
             "scale_mode": scale_mode,
             "fee_rate": fee_rate,
             "exit_rule": exit_rule,
+            "fill_mode": fill_mode,
+            "slippage_pct": slippage_pct,
         },
         "strategies": summary_by_strategy,
         "recommendations": recommendations,

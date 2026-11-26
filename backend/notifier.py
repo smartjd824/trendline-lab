@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import subprocess
 from typing import Any
 
@@ -125,7 +126,9 @@ def dispatch_alerts(
             send_telegram_message(
                 alert_cfg.get("telegram_bot_token", ""),
                 alert_cfg.get("telegram_chat_id", ""),
-                f"<b>{title}</b>\n\n{full_message}",
+                # parse_mode=HTML: raw '&' / '<' (e.g. "S&P 500", "Johnson & Johnson") must be escaped,
+                # otherwise Telegram rejects the message with "can't parse entities".
+                f"<b>{html.escape(title, quote=False)}</b>\n\n{html.escape(full_message, quote=False)}",
             )
         )
     if alert_cfg.get("discord_enabled"):
