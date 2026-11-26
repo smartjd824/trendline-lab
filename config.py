@@ -20,6 +20,19 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 MARKETS = ["ALL", "KOSPI", "KOSDAQ", "US", "CRYPTO"]
 
+# Realistic one-way trading costs per market (fraction of trade value), used when cost_model="market".
+#   buy  = commission + slippage
+#   sell = commission + slippage (+ KR securities transaction tax, ~0.20% in 2026 — verify current rate)
+# Adjust to match your broker. Index/macro rows approximate ETF trading costs.
+MARKET_COSTS: dict[str, dict[str, float]] = {
+    "KOSPI": {"buy": 0.00015 + 0.0010, "sell": 0.00015 + 0.0010 + 0.0020},
+    "KOSDAQ": {"buy": 0.00015 + 0.0015, "sell": 0.00015 + 0.0015 + 0.0020},
+    "US": {"buy": 0.0007 + 0.0005, "sell": 0.0007 + 0.0005},
+    "CRYPTO": {"buy": 0.0010 + 0.0005, "sell": 0.0010 + 0.0005},
+    "INDEX": {"buy": 0.0005, "sell": 0.0005},
+    "MACRO": {"buy": 0.0005, "sell": 0.0005},
+}
+
 THEMES: list[dict[str, str]] = [
     {"id": "AI·반도체", "label": "🤖 AI·반도체"},
     {"id": "전력·원전", "label": "⚡ 전력·원전"},
@@ -365,6 +378,10 @@ DEFAULT_SETTINGS = {
     "near_threshold_pct": 3.0,  # 돌파 임박 기준 (%)
     "active_strategy": "AUTO_BEST",
     "exit_rule": "default",
+    # "close": fill at the signal bar's close (legacy, slightly optimistic)
+    # "next_open": signal on close -> fill at next bar's open, stops/targets trigger intraday (realistic)
+    "execution": "close",
+    "cost_model": "flat",  # "flat" (fee_rate per side) | "market" (MARKET_COSTS incl. KR sell tax & slippage)
     "alerts": {
         "macos_enabled": False,
         "telegram_enabled": False,

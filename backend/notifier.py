@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import subprocess
+import time
 from typing import Any
 
 import httpx
@@ -15,7 +17,18 @@ def _split_chunks(text: str, max_len: int) -> list[str]:
     chunks: list[str] = []
     current: list[str] = []
     cur_len = 0
-    for line in text.splitlines(keepends=True):
+    lines: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        # Hard-wrap any single line longer than max_len so no chunk can exceed the API limit
+        while len(raw_line) > max_len:
+            cut = max_len
+            amp = raw_line.rfind("&", max_len - 8, max_len)
+            if amp > 0 and ";" not in raw_line[amp:max_len]:
+                cut = amp  # don't split an HTML entity such as &amp;
+            lines.append(raw_line[:cut])
+            raw_line = raw_line[cut:]
+        lines.append(raw_line)
+    for line in lines:
         if cur_len + len(line) > max_len and current:
             chunks.append("".join(current).rstrip())
             current = [line]
@@ -58,18 +71,24 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str) -> dict[str, 
         with httpx.Client(timeout=15.0) as client:
             for idx, chunk in enumerate(chunks, 1):
                 body = f"<b>[{idx}/{len(chunks)}]</b>\n{chunk}" if len(chunks) > 1 else chunk
-                resp = client.post(
-                    url,
-                    json={
-                        "chat_id": chat_id.strip(),
-                        "text": body,
-                        "parse_mode": "HTML",
-                        "disable_web_page_preview": True,
-                    },
-                )
+                payload = {
+                    "chat_id": chat_id.strip(),
+                    "text": body,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                }
+                resp = client.post(url, json=payload)
                 data = resp.json()
+                if resp.status_code == 429:
+                    # Flood control: honour retry_after once, then retry this chunk
+                    wait_s = float(data.get("parameters", {}).get("retry_after", 3))
+                    time.sleep(min(wait_s, 30.0))
+                    resp = client.post(url, json=payload)
+                    data = resp.json()
                 if resp.status_code == 200 and data.get("ok", False):
                     sent += 1
+                    if idx < len(chunks):
+                        time.sleep(0.4)
                 else:
                     last_err = data.get("description", f"HTTP {resp.status_code}")
                     break
@@ -125,7 +144,9 @@ def dispatch_alerts(
             send_telegram_message(
                 alert_cfg.get("telegram_bot_token", ""),
                 alert_cfg.get("telegram_chat_id", ""),
-                f"<b>{title}</b>\n\n{full_message}",
+                # parse_mode=HTML: names like "S&P 500", "KT&G", "Johnson & Johnson" must be escaped,
+                # otherwise Telegram rejects the whole message with "can't parse entities".
+                f"<b>{html.escape(title, quote=False)}</b>\n\n{html.escape(full_message, quote=False)}",
             )
         )
     if alert_cfg.get("discord_enabled"):

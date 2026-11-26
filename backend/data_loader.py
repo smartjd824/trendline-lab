@@ -3,13 +3,73 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
 
 from config import ASSET_MAP, ASSETS, DB_PATH, INDEX_MAP, INDICES
+
+
+KST = ZoneInfo("Asia/Seoul")
+NY_TZ = ZoneInfo("America/New_York")
+KR_INDEX_SYMBOLS = {"^KS11", "^KQ11"}
+
+
+def session_type(symbol: str) -> str:
+    """Return trading-session family for a symbol: 'KR' | 'US' | 'CRYPTO'."""
+    asset = ASSET_MAP.get(symbol)
+    if asset is not None:
+        mkt = asset["market"]
+        if mkt in ("KOSPI", "KOSDAQ"):
+            return "KR"
+        if mkt == "CRYPTO":
+            return "CRYPTO"
+        return "US"
+    if symbol in KR_INDEX_SYMBOLS or symbol.endswith((".KS", ".KQ")):
+        return "KR"
+    if symbol.endswith("-USD"):
+        return "CRYPTO"
+    return "US"
+
+
+def is_bar_complete(symbol: str, bar_date: str, now_utc: datetime | None = None) -> bool:
+    """
+    True if the daily bar dated `bar_date` (YYYY-MM-DD, exchange-local date) has closed.
+
+    - KR (KOSPI/KOSDAQ, 15:30 KST close): complete after 16:00 KST of that date
+    - US (16:00 ET close): complete after 16:30 ET of that date
+    - CRYPTO (yfinance UTC daily candles): complete after 00:00 UTC of the next day
+    """
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    d = datetime.strptime(bar_date, "%Y-%m-%d").date()
+    kind = session_type(symbol)
+    if kind == "KR":
+        close_at = datetime.combine(d, time(16, 0), tzinfo=KST)
+    elif kind == "CRYPTO":
+        close_at = datetime.combine(d + timedelta(days=1), time(0, 0), tzinfo=timezone.utc)
+    else:
+        close_at = datetime.combine(d, time(16, 30), tzinfo=NY_TZ)
+    return now >= close_at
+
+
+def drop_incomplete_last_bar(symbol: str, df: pd.DataFrame, now_utc: datetime | None = None) -> pd.DataFrame:
+    """
+    Remove today's still-forming (intraday) candle so signals are only generated on CLOSED bars.
+
+    Without this, a 10:00 KST run sees a 1-hour-old KR candle (volume ratio ~0.1x, breakouts that
+    may vanish by the close) and a 1-hour-old crypto UTC candle.
+    """
+    if df is None or df.empty:
+        return df
+    last_date = str(df["date"].iloc[-1])
+    if is_bar_complete(symbol, last_date, now_utc):
+        return df
+    return df.iloc[:-1].reset_index(drop=True)
 
 
 def _get_conn() -> sqlite3.Connection:

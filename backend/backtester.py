@@ -9,8 +9,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, INDEX_MAP, INDICES, MARKETS, THEMES
-from backend.data_loader import load_all_cached_ohlcv, load_ohlcv
+from config import ASSET_MAP, ASSETS, IND_CACHE_DIR, INDEX_MAP, INDICES, MARKET_COSTS, MARKETS, THEMES
+from backend.data_loader import drop_incomplete_last_bar, load_all_cached_ohlcv, load_ohlcv
 from backend.indicators import compute_indicator_frame
 
 # MA200 10-bar % change threshold for "평평하거나 미세하게 상승"
@@ -125,11 +125,17 @@ def get_cached_indicators(
     long_window: int = 180,
     price_source: str = "wick",
     scale_mode: str = "linear",
+    closed_bars_only: bool = True,
 ) -> pd.DataFrame:
     if df is None:
         df = load_ohlcv(symbol)
     if df.empty:
         return df
+    if closed_bars_only:
+        # Never evaluate signals on a still-forming intraday candle (e.g. KR at 10:00 KST).
+        df = drop_incomplete_last_bar(symbol, df)
+        if df.empty:
+            return df
     last_date = str(df["date"].iloc[-1])
     rows = len(df)
     key = (symbol, short_window, long_window, price_source, scale_mode, last_date, rows)
@@ -417,8 +423,20 @@ def run_backtest_single(
     custom_params: dict[str, Any] | None = None,
     include_series: bool = False,
     exit_rule: str = "default",
+    execution: str = "close",
+    cost_model: str = "flat",
 ) -> dict[str, Any]:
-    """Run causal backtest for a single symbol over the last `years` (2, 4, or 6)."""
+    """
+    Run causal backtest for a single symbol over the last `years` (2, 4, or 6).
+
+    execution:
+      - "close"     : signals evaluated on bar t's close and filled at the same close; stop/target on close.
+      - "next_open" : signals on bar t's close are filled at bar t+1's OPEN; stop-loss / take-profit
+                      trigger intraday on the bar's low/high (gap-aware fill at the open if it gaps through).
+    cost_model:
+      - "flat"   : `fee_rate` per side.
+      - "market" : MARKET_COSTS[market] (commission + slippage, plus KR sell tax).
+    """
     asset = ASSET_MAP.get(symbol) or INDEX_MAP.get(symbol) or {"symbol": symbol, "name": symbol, "market": "UNKNOWN", "currency": "USD", "theme": "기타"}
     if ind.empty or len(ind) < 220:
         return {
@@ -469,6 +487,17 @@ def run_backtest_single(
     else:
         stop_loss_pct, take_profit_pct = 8.0, 0.0
 
+    op = ind["open"].to_numpy(dtype=np.float64)
+    hi = ind["high"].to_numpy(dtype=np.float64)
+    lo = ind["low"].to_numpy(dtype=np.float64)
+    next_open = execution == "next_open"
+
+    if cost_model == "market":
+        costs = MARKET_COSTS.get(asset["market"], {"buy": fee_rate, "sell": fee_rate})
+        buy_cost, sell_cost = float(costs["buy"]), float(costs["sell"])
+    else:
+        buy_cost = sell_cost = float(fee_rate)
+
     cash = 1.0
     shares = 0.0
     in_pos = False
@@ -477,6 +506,13 @@ def run_backtest_single(
     entry_idx = -1
     entry_date = ""
     entry_reason_str = ""
+    signal_date = ""
+    pending_entry = False  # next_open: buy signal on previous close, fill at this open
+    pending_exit = False  # next_open: exit signal on previous close, fill at this open
+    pending_entry_reason = ""
+    pending_signal_date = ""
+    pending_exit_reason = ""
+    exposure_bars = 0
 
     trades: list[dict[str, Any]] = []
     equity_curve: list[dict[str, Any]] = []
@@ -485,15 +521,73 @@ def run_backtest_single(
 
     bnh_base = cl[start_idx]
 
+    def _close_position(t: int, exit_price: float, reason: str) -> None:
+        nonlocal cash, shares, in_pos
+        cash = shares * exit_price * (1.0 - sell_cost)
+        shares = 0.0
+        in_pos = False
+        net_ret = ((exit_price * (1.0 - sell_cost)) / (entry_price * (1.0 + buy_cost)) - 1.0) * 100.0
+        trades.append(
+            {
+                "entry_date": entry_date,
+                "signal_date": signal_date,
+                "exit_date": dates[t],
+                "entry_price": round(entry_price, 6),
+                "exit_price": round(exit_price, 6),
+                "return_pct": round(net_ret, 2),
+                "holding_days": t - entry_idx,
+                "entry_reason": entry_reason_str,
+                "exit_reason": reason,
+                "open": False,
+            }
+        )
+
+    def _open_position(t: int, fill_price: float, reason: str, sig_date: str) -> None:
+        nonlocal cash, shares, in_pos, entry_price, peak_price_in_pos, entry_idx, entry_date
+        nonlocal entry_reason_str, signal_date
+        entry_price = fill_price
+        peak_price_in_pos = fill_price
+        shares = (cash * (1.0 - buy_cost)) / entry_price
+        cash = 0.0
+        in_pos = True
+        entry_idx = t
+        entry_date = dates[t]
+        entry_reason_str = reason
+        signal_date = sig_date
+
     for t in range(start_idx, len(ind)):
         price = cl[t]
+        exited_this_bar = False
+
+        # ---- next_open: execute orders queued on the previous close at today's open ----
+        if next_open:
+            if pending_exit and in_pos:
+                _close_position(t, op[t], pending_exit_reason)
+                exited_this_bar = True
+            elif pending_entry and not in_pos:
+                _open_position(t, op[t], pending_entry_reason, pending_signal_date)
+            pending_entry = pending_exit = False
+
+        if in_pos:
+            stop_px = entry_price * (1.0 - stop_loss_pct / 100.0) if stop_loss_pct > 0 else None
+            tp_px = entry_price * (1.0 + take_profit_pct / 100.0) if take_profit_pct > 0 else None
+
+            if next_open:
+                # Intraday protective orders (conservative: stop is assumed to hit before target)
+                if stop_px is not None and lo[t] <= stop_px:
+                    _close_position(t, min(op[t], stop_px), f"손절 (-{stop_loss_pct:.0f}%)")
+                    exited_this_bar = True
+                elif tp_px is not None and hi[t] >= tp_px:
+                    _close_position(t, max(op[t], tp_px), f"목표 익절 (+{take_profit_pct:.0f}%)")
+                    exited_this_bar = True
+
         if in_pos:
             if price > peak_price_in_pos:
                 peak_price_in_pos = price
             ret_from_entry = (price / entry_price - 1.0) * 100.0
             dd_from_peak = (price / peak_price_in_pos - 1.0) * 100.0
-            stop_hit = stop_loss_pct > 0 and ret_from_entry <= -stop_loss_pct
-            tp_hit = take_profit_pct > 0 and ret_from_entry >= take_profit_pct
+            stop_hit = (not next_open) and stop_loss_pct > 0 and ret_from_entry <= -stop_loss_pct
+            tp_hit = (not next_open) and take_profit_pct > 0 and ret_from_entry >= take_profit_pct
             min_hold_ok = (t - entry_idx) >= (3 if (strategy_id == "S4" and exit_rule == "default") else 1)
 
             ma200_2d_break = (
@@ -537,40 +631,26 @@ def run_backtest_single(
                     rule_exit, rule_reason = True, "MA20·MA200 데드크로스 청산"
 
             if stop_hit or tp_hit or (rule_exit and min_hold_ok):
-                exit_price = price
-                cash = shares * exit_price * (1.0 - fee_rate)
-                shares = 0.0
-                in_pos = False
-                net_ret = ((exit_price * (1.0 - fee_rate)) / (entry_price * (1.0 + fee_rate)) - 1.0) * 100.0
                 reason = (
                     f"손절 (-{stop_loss_pct:.0f}%)"
                     if stop_hit
                     else (f"목표 익절 (+{take_profit_pct:.0f}%)" if tp_hit else rule_reason)
                 )
-                trades.append(
-                    {
-                        "entry_date": entry_date,
-                        "exit_date": dates[t],
-                        "entry_price": round(entry_price, 6),
-                        "exit_price": round(exit_price, 6),
-                        "return_pct": round(net_ret, 2),
-                        "holding_days": t - entry_idx,
-                        "entry_reason": entry_reason_str,
-                        "exit_reason": reason,
-                        "open": False,
-                    }
-                )
-        else:
-            if buy_sig[t]:
-                entry_price = price
-                peak_price_in_pos = price
-                shares = (cash * (1.0 - fee_rate)) / entry_price
-                cash = 0.0
-                in_pos = True
-                entry_idx = t
-                entry_date = dates[t]
-                entry_reason_str = buy_reason[t]
+                if next_open:
+                    pending_exit, pending_exit_reason = True, reason
+                else:
+                    _close_position(t, price, reason)
+                    exited_this_bar = True
+        elif not exited_this_bar and buy_sig[t]:
+            if next_open:
+                pending_entry = True
+                pending_entry_reason = buy_reason[t]
+                pending_signal_date = dates[t]
+            else:
+                _open_position(t, price, buy_reason[t], dates[t])
 
+        if in_pos:
+            exposure_bars += 1
         eq = (shares * price) if in_pos else cash
         if eq > peak_eq:
             peak_eq = eq
@@ -588,15 +668,16 @@ def run_backtest_single(
             )
 
     final_price = cl[-1]
-    final_eq = (shares * final_price * (1.0 - fee_rate)) if in_pos else cash
+    final_eq = (shares * final_price * (1.0 - sell_cost)) if in_pos else cash
     total_return_pct = (final_eq - 1.0) * 100.0
     bnh_return_pct = (final_price / bnh_base - 1.0) * 100.0
 
     open_trade = None
     if in_pos:
-        unrealized = ((final_price * (1.0 - fee_rate)) / (entry_price * (1.0 + fee_rate)) - 1.0) * 100.0
+        unrealized = ((final_price * (1.0 - sell_cost)) / (entry_price * (1.0 + buy_cost)) - 1.0) * 100.0
         open_trade = {
             "entry_date": entry_date,
+            "signal_date": signal_date,
             "exit_date": dates[-1],
             "entry_price": round(entry_price, 6),
             "exit_price": round(final_price, 6),
@@ -649,6 +730,15 @@ def run_backtest_single(
         "avg_trade_return_pct": round(avg_trade_ret, 2),
         "avg_hold_days": round(avg_hold_days, 1),
         "holding_now": in_pos,
+        "exposure_pct": round(exposure_bars / max(len(ind) - start_idx, 1) * 100.0, 1),
+        "execution": execution,
+        "cost_model": cost_model,
+        # next_open: an order generated on the LAST close that will be filled at the next open
+        "pending_order": (
+            {"side": "BUY", "signal_date": pending_signal_date, "reason": pending_entry_reason}
+            if pending_entry
+            else ({"side": "SELL", "signal_date": dates[-1], "reason": pending_exit_reason} if pending_exit else None)
+        ),
     }
     if include_series:
         all_trades = trades + ([open_trade] if open_trade else [])
@@ -666,6 +756,8 @@ def run_research_matrix(
     include_custom: bool = False,
     custom_params: dict[str, Any] | None = None,
     exit_rule: str = "default",
+    execution: str = "close",
+    cost_model: str = "flat",
 ) -> dict[str, Any]:
     """
     Run full 30-asset × (S1..S5 [+ S6]) × (2Y, 4Y, 6Y) comparison matrix.
@@ -709,6 +801,8 @@ def run_research_matrix(
                     custom_params=custom_params,
                     include_series=False,
                     exit_rule=exit_rule,
+                    execution=execution,
+                    cost_model=cost_model,
                 )
                 if "error" not in res:
                     rows.append(res)
@@ -818,6 +912,8 @@ def run_research_matrix(
             "scale_mode": scale_mode,
             "fee_rate": fee_rate,
             "exit_rule": exit_rule,
+            "execution": execution,
+            "cost_model": cost_model,
         },
         "strategies": summary_by_strategy,
         "recommendations": recommendations,
@@ -832,6 +928,8 @@ def run_exit_rule_comparison(
     price_source: str = "wick",
     scale_mode: str = "linear",
     fee_rate: float = 0.001,
+    execution: str = "close",
+    cost_model: str = "flat",
 ) -> dict[str, Any]:
     """Compare all 6 explicit exit rules for a given entry strategy across 150 assets and 2Y/4Y/6Y."""
     ind_map = build_indicator_map(
@@ -862,6 +960,8 @@ def run_exit_rule_comparison(
                     fee_rate=fee_rate,
                     include_series=False,
                     exit_rule=eid,
+                    execution=execution,
+                    cost_model=cost_model,
                 )
                 if "error" not in r:
                     rows.append(r)

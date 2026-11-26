@@ -30,6 +30,9 @@ jobs:
       - name: Install Python dependencies
         run: uv sync
 
+      - name: Run core regression tests
+        run: uv run pytest -q
+
       - name: Fetch latest 7.6-year market data (250 themed assets)
         run: |
           uv run python -c "from backend.data_loader import fetch_and_cache_symbols; res = fetch_and_cache_symbols(years=7.6, force=True); print('Updated:', len(res['updated']), 'Failed:', len(res['failed']))"

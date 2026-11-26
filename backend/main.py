@@ -34,7 +34,9 @@ app = FastAPI(title="MA20·MA200 추세선 30종목 연구실 & 신호 알림 �
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # The dashboard is served from this same origin, so cross-origin access is not needed.
+    # A wildcard here would let ANY website open in the browser read /api/settings (Telegram token).
+    allow_origins=["http://127.0.0.1:8000", "http://localhost:8000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,6 +48,8 @@ class CustomResearchRequest(BaseModel):
     price_source: str = "wick"
     scale_mode: str = "linear"
     fee_rate: float = 0.001
+    execution: str = "close"
+    cost_model: str = "flat"
     custom_params: dict[str, Any] = DEFAULT_CUSTOM_PARAMS
 
 
@@ -58,6 +62,8 @@ class SettingsPayload(BaseModel):
     near_threshold_pct: float = 3.0
     active_strategy: str = "S5"
     exit_rule: str = "default"
+    execution: str = "close"
+    cost_model: str = "flat"
     alerts: dict[str, Any]
 
 
@@ -97,6 +103,8 @@ def api_chart(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
+    execution: str = Query("close", pattern="^(close|next_open)$"),
+    cost_model: str = Query("flat", pattern="^(flat|market)$"),
 ):
     if symbol not in ASSET_MAP and symbol not in INDEX_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {symbol}")
@@ -121,6 +129,8 @@ def api_chart(
         fee_rate=fee_rate,
         include_series=True,
         exit_rule=exit_rule,
+        execution=execution,
+        cost_model=cost_model,
     )
     trendlines = extract_current_trendlines(
         ind,
@@ -199,7 +209,8 @@ def api_chart(
     multi_period = {}
     for y in (2, 4, 6):
         multi_period[f"{y}Y"] = run_backtest_single(
-            symbol, ind, strategy_id=strategy_id, years=y, fee_rate=fee_rate, include_series=False, exit_rule=exit_rule
+            symbol, ind, strategy_id=strategy_id, years=y, fee_rate=fee_rate, include_series=False, exit_rule=exit_rule,
+            execution=execution, cost_model=cost_model,
         )
 
     last_row = ind.iloc[-1]
@@ -236,6 +247,8 @@ def api_research(
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
     exit_rule: str = Query("default"),
+    execution: str = Query("close", pattern="^(close|next_open)$"),
+    cost_model: str = Query("flat", pattern="^(flat|market)$"),
 ):
     return run_research_matrix(
         short_window=short_window,
@@ -245,6 +258,8 @@ def api_research(
         fee_rate=fee_rate,
         include_custom=False,
         exit_rule=exit_rule,
+        execution=execution,
+        cost_model=cost_model,
     )
 
 
@@ -256,6 +271,8 @@ def api_research_exits(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
+    execution: str = Query("close", pattern="^(close|next_open)$"),
+    cost_model: str = Query("flat", pattern="^(flat|market)$"),
 ):
     return run_exit_rule_comparison(
         strategy_id=strategy_id,
@@ -264,6 +281,8 @@ def api_research_exits(
         price_source=price_source,
         scale_mode=scale_mode,
         fee_rate=fee_rate,
+        execution=execution,
+        cost_model=cost_model,
     )
 
 
@@ -277,6 +296,8 @@ def api_research_custom(req: CustomResearchRequest):
         fee_rate=req.fee_rate,
         include_custom=True,
         custom_params=req.custom_params,
+        execution=req.execution,
+        cost_model=req.cost_model,
     )
 
 
@@ -289,6 +310,8 @@ def api_scanner(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     near_threshold_pct: float = Query(3.0, ge=0.5, le=15.0),
+    execution: str = Query("close", pattern="^(close|next_open)$"),
+    cost_model: str = Query("flat", pattern="^(flat|market)$"),
 ):
     return scan_all_assets(
         strategy_id=strategy_id,
@@ -298,6 +321,8 @@ def api_scanner(
         scale_mode=scale_mode,
         near_threshold_pct=near_threshold_pct,
         exit_rule=exit_rule,
+        execution=execution,
+        cost_model=cost_model,
     )
 
 

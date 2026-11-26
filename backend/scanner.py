@@ -361,6 +361,8 @@ def scan_all_assets(
     near_threshold_pct: float = 3.0,
     custom_params: dict[str, Any] | None = None,
     exit_rule: str = "default",
+    execution: str = "close",
+    cost_model: str = "flat",
 ) -> dict[str, Any]:
     """
     Scan all 250 cached assets using causal strategy state, market thermometer,
@@ -400,6 +402,8 @@ def scan_all_assets(
             custom_params=custom_params,
             include_series=True,
             exit_rule=eff_exit,
+            execution=execution,
+            cost_model=cost_model,
         )
 
         cur = _extract_bar_snapshot(ind, len(ind) - 1)
@@ -414,7 +418,16 @@ def scan_all_assets(
         reason = "추세 관망"
         priority = 4
 
-        if last_trade and last_trade["open"]:
+        pending = bt.get("pending_order")
+        if pending and pending["side"] == "BUY":
+            signal = "BUY"
+            reason = f"[{rule_label}] {pending['reason']} (오늘 종가 신호 → 다음 시가 진입)"
+            priority = 0
+        elif pending and pending["side"] == "SELL":
+            signal = "SELL"
+            reason = f"[{rule_label}] {pending['reason']} (오늘 종가 신호 → 다음 시가 청산)"
+            priority = 1
+        elif last_trade and last_trade["open"]:
             if last_trade["entry_date"] in recent_dates:
                 signal = "BUY"
                 day_tag = "오늘" if last_trade["entry_date"] == cur["date"] else "전일"
@@ -953,6 +966,8 @@ def scan_and_notify(
         near_threshold_pct=float(settings.get("near_threshold_pct", 3.0)),
         custom_params=custom_params,
         exit_rule=settings.get("exit_rule", "default"),
+        execution=settings.get("execution", "close"),
+        cost_model=settings.get("cost_model", "flat"),
     )
 
     alert_cfg = settings.get("alerts", {})
