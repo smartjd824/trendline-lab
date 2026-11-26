@@ -121,6 +121,15 @@ def compute_indicator_frame(
     out["rsi14"] = rsi.fillna(100.0).where(avg_loss > 0, np.where(avg_gain > 0, 100.0, 50.0))
     out.loc[:13, "rsi14"] = np.nan
 
+    # Wilder ATR(14) — volatility-scaled stops / chandelier exits
+    prev_close = pd.Series(close).shift(1)
+    tr = pd.concat(
+        [pd.Series(high - low), (pd.Series(high) - prev_close).abs(), (pd.Series(low) - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    out["atr14"] = tr.ewm(alpha=1.0 / 14.0, adjust=False, min_periods=14).mean()
+    out["atr14_pct"] = out["atr14"] / pd.Series(close) * 100.0
+
     # Weekly 20-week MA (strictly causal: resampled weekly close shifted/aligned on date_dt)
     if "date_dt" in out.columns:
         s_close = pd.Series(close, index=pd.DatetimeIndex(out["date_dt"]))

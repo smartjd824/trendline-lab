@@ -26,7 +26,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from config import ASSETS, BASE_DIR, INDICES, MARKET_BEST_RULES, THEMES
+import base64
+
+from config import ASSETS, BASE_DIR, INDICES, THEMES, get_market_rules
+from backend.analytics import compute_market_breadth, regime_mask
+from backend.research_pipeline import rebuild_advanced_research
 from backend.backtester import (
     DEFAULT_CUSTOM_PARAMS,
     EXIT_RULES,
@@ -48,9 +52,28 @@ def _safe_sym(symbol: str) -> str:
     return symbol.replace("/", "_").replace(".", "_").replace("^", "IDX_").replace("=", "_")
 
 
-def _write_json(path: Path, data: Any) -> None:
+PBKDF2_ITERATIONS = 250_000
+_ENC_KEY: bytes | None = None  # set when a passcode is given -> every data JSON is AES-256-GCM encrypted
+
+
+def _derive_key(passcode: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", passcode.encode("utf-8"), salt, PBKDF2_ITERATIONS, dklen=32)
+
+
+def _encrypt_payload(raw: bytes) -> dict[str, Any]:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    iv = os.urandom(12)
+    ct = AESGCM(_ENC_KEY).encrypt(iv, raw, None)
+    return {"enc": "aes-256-gcm", "iv": base64.b64encode(iv).decode(), "ct": base64.b64encode(ct).decode()}
+
+
+def _write_json(path: Path, data: Any, public: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=float)
+    if _ENC_KEY is not None and not public:
+        raw = json.dumps(_encrypt_payload(raw.encode("utf-8")), separators=(",", ":"))
+    path.write_text(raw, encoding="utf-8")
 
 
 def _build_chart_payload(
@@ -58,16 +81,23 @@ def _build_chart_payload(
     ind: pd.DataFrame,
     short_window: int = 45,
     long_window: int = 180,
+    rules: dict[str, dict[str, Any]] | None = None,
+    breadth: dict[str, pd.Series] | None = None,
 ) -> dict[str, Any]:
     sym = asset["symbol"]
     mkt = asset["market"]
-    rule = MARKET_BEST_RULES.get(mkt, {"strategy_id": "S3", "exit_rule": "ma200_2d", "label": "S3+MA200홀딩"})
+    rules = rules or get_market_rules()
+    rule = rules.get(mkt, {"strategy_id": "S3", "exit_rule": "ma200_2d", "label": "S3+MA200홀딩"})
     sid = rule["strategy_id"]
     eid = rule["exit_rule"]
+    extra = {
+        "stop_mode": rule.get("stop_mode", "fixed"),
+        "regime_ok": regime_mask(ind, (breadth or {}).get(mkt)) if rule.get("regime_filter") else None,
+    }
 
-    bt = run_backtest_single(sym, ind, strategy_id=sid, years=6, include_series=True, exit_rule=eid)
+    bt = run_backtest_single(sym, ind, strategy_id=sid, years=6, include_series=True, exit_rule=eid, **extra)
     multi_period = {
-        f"{y}Y": run_backtest_single(sym, ind, strategy_id=sid, years=y, include_series=False, exit_rule=eid)
+        f"{y}Y": run_backtest_single(sym, ind, strategy_id=sid, years=y, include_series=False, exit_rule=eid, **extra)
         for y in (2, 4, 6)
     }
     trendlines = extract_current_trendlines(ind, short_window=short_window, long_window=long_window)
@@ -148,6 +178,9 @@ def _build_chart_payload(
 
 
 def build_static_site(passcode: str = "") -> dict[str, Any]:
+    global _ENC_KEY
+    salt = os.urandom(16)
+    _ENC_KEY = _derive_key(passcode.strip(), salt) if passcode.strip() else None
     now_kst = datetime.now(KST).strftime("%Y-%m-%d %H:%M KST")
     print(f"[Build] Starting static site build at {now_kst} ...", flush=True)
 
@@ -177,8 +210,14 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
     ind_map = build_indicator_map()
     print(f"[Build] Loaded indicators for {len(ind_map)} assets.", flush=True)
 
+    # 1b. Walk-forward rule selection, score calibration & portfolio backtest (scanner reads these)
+    advanced = rebuild_advanced_research(ind_map)
+    _write_json(DOCS_DIR / "data" / "advanced.json", {**advanced, "rules": get_market_rules()})
+    rules = get_market_rules()
+    breadth = compute_market_breadth(ind_map)
+
     # 2. Precompute research matrices for key exit rules
-    exit_keys = ["default", "ma200_2d", "dead_cross", "long_lower", "short_lower", "ma20_2d", "trailing_12"]
+    exit_keys = ["default", "ma200_2d", "dead_cross", "long_lower", "short_lower", "ma20_2d", "trailing_12", "atr_chandelier"]
     for eid in exit_keys:
         res = run_research_matrix(exit_rule=eid)
         _write_json(DOCS_DIR / "data" / f"research_{eid}.json", res)
@@ -216,23 +255,21 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
         ind = ind_map.get(sym)
         if ind is None or len(ind) < 210:
             continue
-        payload = _build_chart_payload(asset, ind)
+        payload = _build_chart_payload(asset, ind, rules=rules, breadth=breadth)
         _write_json(DOCS_DIR / "data" / "charts" / f"{_safe_sym(sym)}.json", payload)
         charts_written += 1
     print(f"[Build] Wrote {charts_written} chart JSON files (250 assets + 10 indices).", flush=True)
 
-    # 6. Meta + optional SHA-256 passcode lock
-    pass_hash = hashlib.sha256(passcode.strip().encode("utf-8")).hexdigest() if passcode.strip() else ""
+    # 6. Meta. With a passcode, ALL data files (incl. meta body) are AES-256-GCM encrypted with a
+    #    PBKDF2-SHA256 derived key — the old client-side SHA-256 check protected nothing.
     meta = {
         "static_mode": True,
         "generated_at": now_kst,
-        "passcode_required": bool(pass_hash),
-        "passcode_sha256": pass_hash,
         "assets": ASSETS,
         "themes": THEMES,
         "strategies": list(STRATEGIES.values()),
         "exit_rules": list(EXIT_RULES.values()),
-        "market_best_rules": MARKET_BEST_RULES,
+        "market_best_rules": rules,
         "cache": {"total": len(ASSETS), "cached": charts_written, "ready": charts_written == len(ASSETS)},
         "settings": {
             "short_window": 45,
@@ -242,18 +279,30 @@ def build_static_site(passcode: str = "") -> dict[str, Any]:
             "near_threshold_pct": 3.0,
             "active_strategy": "AUTO_BEST",
             "exit_rule": "ma200_2d",
+            "execution": "next_open",
+            "cost_model": "market",
             "alerts": {},
         },
         "default_custom_params": DEFAULT_CUSTOM_PARAMS,
     }
-    _write_json(DOCS_DIR / "data" / "meta.json", meta)
+    if _ENC_KEY is not None:
+        lock = {
+            "static_mode": True,
+            "generated_at": now_kst,
+            "passcode_required": True,
+            "kdf": {"name": "PBKDF2-SHA256", "iterations": PBKDF2_ITERATIONS, "salt": base64.b64encode(salt).decode()},
+            "meta_enc": _encrypt_payload(json.dumps(meta, ensure_ascii=False).encode("utf-8")),
+        }
+        _write_json(DOCS_DIR / "data" / "meta.json", lock, public=True)
+    else:
+        _write_json(DOCS_DIR / "data" / "meta.json", {**meta, "passcode_required": False}, public=True)
 
     total_bytes = sum(p.stat().st_size for p in DOCS_DIR.rglob("*") if p.is_file())
     summary = {
         "docs_dir": str(DOCS_DIR),
         "charts_written": charts_written,
         "total_size_mb": round(total_bytes / (1024 * 1024), 2),
-        "passcode_protected": bool(pass_hash),
+        "passcode_protected": _ENC_KEY is not None,
         "generated_at": now_kst,
     }
     print(f"[Build] Complete! {summary}", flush=True)

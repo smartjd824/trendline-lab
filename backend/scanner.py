@@ -15,8 +15,19 @@ from typing import Any
 
 import numpy as np
 
-from config import ASSETS, INDICES, MARKET_BEST_RULES, REPORTS_DIR, THEMES, load_settings
-from backend.backtester import STRATEGIES, build_indicator_map, run_backtest_single
+from config import (
+    ASSETS,
+    CALIBRATION_PATH,
+    INDICES,
+    REPORTS_DIR,
+    THEMES,
+    get_market_rules,
+    load_settings,
+    read_json_file,
+)
+from backend.analytics import compute_market_breadth, regime_mask
+from backend.backtester import STRATEGIES, atr_stop_pct, build_indicator_map, run_backtest_single
+from backend.calibration import calibrated_probs
 from backend.notifier import dispatch_alerts
 
 THEME_LABELS = {t["id"]: t["label"] for t in THEMES}
@@ -78,6 +89,7 @@ def _compute_trade_plan(
     lu: float | None,
     high180: float | None,
     signal: str,
+    atr_pct: float | None = None,
 ) -> dict[str, Any]:
     """Compute actionable Entry, Stop-Loss, Target 1/2, and Risk-Reward ratio."""
     # Entry reference: if NEAR breakout, show breakout level or current price
@@ -92,6 +104,11 @@ def _compute_trade_plan(
     if candidates:
         # Pick tightest meaningful technical support below price
         stop_loss, stop_basis = max(candidates, key=lambda x: x[0])
+    elif atr_pct is not None and np.isfinite(atr_pct) and atr_pct > 0:
+        # No nearby technical support: volatility-scaled stop (2.5×ATR, clipped 4~15%)
+        a_pct = atr_stop_pct(atr_pct, 8.0)
+        stop_loss = entry * (1.0 - a_pct / 100.0)
+        stop_basis = f"2.5×ATR 손절(-{a_pct:.1f}%)"
     else:
         stop_loss = entry * 0.92
         stop_basis = "-8% 기본손절"
@@ -301,6 +318,7 @@ def _extract_bar_snapshot(ind, idx: int) -> dict[str, Any]:
     wma20 = _safe_float(row["wma20"]) if "wma20" in ind.columns else None
     wma20_slope = _safe_float(row["wma20_slope"]) if "wma20_slope" in ind.columns else None
     high180 = _safe_float(row["high180"]) if "high180" in ind.columns else None
+    atr_pct = _safe_float(row["atr14_pct"]) if "atr14_pct" in ind.columns else None
 
     vol_ma20 = _safe_float(row["vol_ma20"]) or 0.0
     vol_ratio = (float(row["volume"]) / vol_ma20) if vol_ma20 > 0 else 1.0
@@ -342,6 +360,7 @@ def _extract_bar_snapshot(ind, idx: int) -> dict[str, Any]:
         "wma20": wma20,
         "weekly_bull": weekly_bull,
         "high180": high180,
+        "atr_pct": atr_pct,
         "su": su,
         "sl": sl,
         "lu": lu,
@@ -361,8 +380,8 @@ def scan_all_assets(
     near_threshold_pct: float = 3.0,
     custom_params: dict[str, Any] | None = None,
     exit_rule: str = "default",
-    execution: str = "close",
-    cost_model: str = "flat",
+    execution: str = "next_open",
+    cost_model: str = "market",
 ) -> dict[str, Any]:
     """
     Scan all 250 cached assets using causal strategy state, market thermometer,
@@ -376,6 +395,9 @@ def scan_all_assets(
     )
     items: list[dict[str, Any]] = []
     prev_snapshots: dict[str, dict[str, Any]] = {}
+    market_rules = get_market_rules()
+    breadth = compute_market_breadth(ind_map)
+    calib = read_json_file(CALIBRATION_PATH)
 
     for asset in ASSETS:
         sym = asset["symbol"]
@@ -385,14 +407,18 @@ def scan_all_assets(
 
         mkt = asset["market"]
         if strategy_id == "AUTO_BEST":
-            rule = MARKET_BEST_RULES.get(mkt, {"strategy_id": "S3", "exit_rule": "ma200_2d", "label": "S3+MA200홀딩"})
+            rule = market_rules.get(mkt, {"strategy_id": "S3", "exit_rule": "ma200_2d", "label": "S3+MA200홀딩"})
             eff_sid = rule["strategy_id"]
             eff_exit = rule["exit_rule"]
             rule_label = rule["label"]
+            eff_stop_mode = rule.get("stop_mode", "fixed")
+            eff_regime = bool(rule.get("regime_filter"))
         else:
             eff_sid = strategy_id
             eff_exit = exit_rule
             rule_label = f"{eff_sid}+{eff_exit}"
+            eff_stop_mode = "atr" if eff_exit == "atr_chandelier" else "fixed"
+            eff_regime = False
 
         bt = run_backtest_single(
             sym,
@@ -404,6 +430,8 @@ def scan_all_assets(
             exit_rule=eff_exit,
             execution=execution,
             cost_model=cost_model,
+            stop_mode=eff_stop_mode,
+            regime_ok=regime_mask(ind, breadth.get(mkt)) if eff_regime else None,
         )
 
         cur = _extract_bar_snapshot(ind, len(ind) - 1)
@@ -487,6 +515,7 @@ def scan_all_assets(
             lu=cur["lu"],
             high180=cur["high180"],
             signal=signal,
+            atr_pct=cur["atr_pct"],
         )
         rsi_code, rsi_label = _rsi_zone(cur["rsi14"])
 
@@ -515,6 +544,7 @@ def scan_all_assets(
                 "rsi_zone": rsi_code,
                 "rsi_label": rsi_label,
                 "weekly_bull": cur["weekly_bull"],
+                "atr_pct": round(cur["atr_pct"], 2) if cur["atr_pct"] is not None else None,
                 "short_upper": round(cur["su"], 4) if cur["su"] else None,
                 "short_lower": round(cur["sl"], 4) if cur["sl"] else None,
                 "long_upper": round(cur["lu"], 4) if cur["lu"] else None,
@@ -620,10 +650,18 @@ def scan_all_assets(
             hist_ret_6y=it["hist_ret_6y"],
             theme_bull_pct=theme_bull_map.get(it["theme"], 0.0),
         )
+        # Bear-market breadth: cap aggressive ratings (entries are statistically weaker in BEAR regimes)
+        if market_regime.get(it["market"], {}).get("regime") == "BEAR" and r_code in ("STRONG_BUY", "BUY"):
+            r_code = "WATCH_BUY"
+            r_label = RATING_META[r_code]["label"]
+            factors = ["🧊 약세장 등급 제한", *factors][:4]
         it["upside_prob"] = prob
         it["rating"] = r_code
         it["rating_label"] = r_label
         it["prob_factors"] = factors
+        cp_ = calibrated_probs(calib, prob)
+        it["calib_hit_prob"] = cp_["hit_prob_pct"] if cp_ else None
+        it["calib_up_prob"] = cp_["up_prob_pct"] if cp_ else None
 
         ps = prev_snapshots[it["symbol"]]
         p_prob, _, _, _ = _score_upside_probability(
@@ -797,6 +835,7 @@ def scan_all_assets(
                 lu=cur["lu"],
                 high180=cur["high180"],
                 signal=sig_i,
+                atr_pct=cur["atr_pct"],
             )
             indices_analysis.append(
                 {
@@ -838,6 +877,15 @@ def scan_all_assets(
         "market_regime": market_regime,
         "themes": theme_stats,
         "items": items,
+        "applied_rules": {m: r.get("label", "") for m, r in market_rules.items()},
+        "rules_source": "walk_forward" if any(r.get("source") == "walk_forward" for r in market_rules.values()) else "fallback",
+        "execution": execution,
+        "cost_model": cost_model,
+        "calibration": (
+            {"definition": calib.get("definition"), "base_hit_pct": calib.get("base_hit_pct"),
+             "samples": calib.get("samples"), "generated_at": calib.get("generated_at")}
+            if calib else None
+        ),
     }
 
 
@@ -870,7 +918,7 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
             if x["group"] == "INDEX":
                 arrow = "↗" if x["ma200_state"] == "up" else ("→" if x["ma200_state"] == "flat" else "↘")
                 sections.append(
-                    f"  • {x['name']}: {x['close']:,.2f} ({x['change_pct']:+.1f}%, 1M {x['ret20_pct']:+.1f}%) · 확률 {x['upside_prob']:.0f}% [{x['rating_label']}] · RSI {x['rsi14']} · MA200{arrow}"
+                    f"  • {x['name']}: {x['close']:,.2f} ({x['change_pct']:+.1f}%, 1M {x['ret20_pct']:+.1f}%) · 점수 {x['upside_prob']:.0f} [{x['rating_label']}] · RSI {x['rsi14']} · MA200{arrow}"
                 )
             else:
                 sections.append(
@@ -883,6 +931,11 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
         f"의견: 🔥강력매수 {rc.get('STRONG_BUY', 0)} | 🟢매수 {rc.get('BUY', 0)} | 🟡관심 {rc.get('WATCH_BUY', 0)} | 💎RSI과매도 {scan.get('oversold_total', 0)}",
     ])
 
+    rules_txt = " · ".join(f"{k} {v}" for k, v in (scan.get("applied_rules") or {}).items())
+    if rules_txt:
+        src = "walk-forward 검증" if scan.get("rules_source") == "walk_forward" else "기본값"
+        sections.append(f"⚙️ 적용 규칙({src}): {rules_txt}")
+
     hot_themes = scan.get("themes", [])[:3]
     if hot_themes:
         sections.append("\n🔥 오늘의 강세 테마 Top 3")
@@ -893,13 +946,15 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
 
     top5 = sorted(items, key=lambda x: (x["upside_prob"], x["hist_pf_6y"]), reverse=True)[:5]
     if top5:
-        sections.append("\n🏆 상승확률 TOP 5")
+        sections.append("\n🏆 상승점수 TOP 5")
         for rank, it in enumerate(top5, 1):
             p_str = _fmt_price(it["close"], it["currency"])
             tp = it.get("trade_plan", {})
             chg = "NEW" if it.get("is_new_top30") else (f"▲{it['rank_delta']}" if it.get("rank_delta", 0) > 0 else (f"▼{abs(it['rank_delta'])}" if it.get("rank_delta", 0) < 0 else "-"))
             sections.append(
-                f"  {rank}위({chg}). {it['name']}({it['symbol']}) {it['upside_prob']:.1f}% [{it['rating_label']}] · {p_str} | 손절 {_fmt_price(tp.get('stop_loss', 0), it['currency'])} · 목표 {_fmt_price(tp.get('target_1', 0), it['currency'])} (R:R 1:{tp.get('rr_ratio', 2)})"
+                f"  {rank}위({chg}). {it['name']}({it['symbol']}) 점수 {it['upside_prob']:.1f}"
+                + (f" (목표도달 {it['calib_hit_prob']:.0f}%)" if it.get("calib_hit_prob") is not None else "")
+                + f" [{it['rating_label']}] · {p_str} | 손절 {_fmt_price(tp.get('stop_loss', 0), it['currency'])} · 목표 {_fmt_price(tp.get('target_1', 0), it['currency'])} (R:R 1:{tp.get('rr_ratio', 2)})"
             )
 
     oversold = sorted(
@@ -911,7 +966,7 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
         for it in oversold:
             p_str = _fmt_price(it["close"], it["currency"])
             sections.append(
-                f"  • [{it['theme']}] {it['name']}({it['symbol']}) {p_str} · RSI {it['rsi14']} · 확률 {it['upside_prob']:.1f}% ({it['rating_label']})"
+                f"  • [{it['theme']}] {it['name']}({it['symbol']}) {p_str} · RSI {it['rsi14']} · 점수 {it['upside_prob']:.1f} ({it['rating_label']})"
             )
 
     def _add_group(header: str, group: list[dict[str, Any]]) -> None:
@@ -928,7 +983,7 @@ def format_full_alert_report(scan: dict[str, Any], include_near: bool = True) ->
                 arrow = "↗" if it["ma200_state"] == "up" else ("→" if it["ma200_state"] == "flat" else "↘")
                 rsi_txt = f"RSI {it['rsi14']}" if it["rsi14"] is not None else ""
                 sections.append(
-                    f"  • [{it.get('theme', '')}] {it['name']}({it['symbol']}) {p_str} ({it['change_pct']:+.1f}%, 확률 {it['upside_prob']:.0f}% {it['rating_label']}, {rsi_txt}, MA200{arrow}) — {it['reason']}"
+                    f"  • [{it.get('theme', '')}] {it['name']}({it['symbol']}) {p_str} ({it['change_pct']:+.1f}%, 점수 {it['upside_prob']:.0f} {it['rating_label']}, {rsi_txt}, MA200{arrow}) — {it['reason']}"
                 )
 
     _add_group("🟢 신규 매수 신호", buys)
@@ -966,8 +1021,8 @@ def scan_and_notify(
         near_threshold_pct=float(settings.get("near_threshold_pct", 3.0)),
         custom_params=custom_params,
         exit_rule=settings.get("exit_rule", "default"),
-        execution=settings.get("execution", "close"),
-        cost_model=settings.get("cost_model", "flat"),
+        execution=settings.get("execution", "next_open"),
+        cost_model=settings.get("cost_model", "market"),
     )
 
     alert_cfg = settings.get("alerts", {})

@@ -24,7 +24,7 @@ git push -u origin main
 GitHub 저장소 페이지(https://github.com/smartjd824/trendline-lab)에서:
 
 1. **비밀번호 & 텔레그램 설정**: `Settings` → `Secrets and variables` → `Actions` → `New repository secret` 클릭 후 아래 등록:
-   - `SITE_PASSCODE` : 웹페이지 열 때 입력할 **나만의 비밀번호** *(예: `20260824` — 한 번 입력하면 내 폰/PC 브라우저에 기억됨)*
+   - `SITE_PASSCODE` : 웹페이지 열 때 입력할 **나만의 비밀번호** *(모든 데이터 파일이 이 비밀번호로 AES-256 암호화됩니다. 날짜·숫자만 된 짧은 비밀번호는 무차별 대입으로 풀릴 수 있으니 **12자 이상 문장형**을 권장합니다 — 한 번 입력하면 내 폰/PC 브라우저에 기억됨)*
    - `TELEGRAM_BOT_TOKEN` : `@BotFather`에서 발급받은 텔레그램 봇 토큰
    - `TELEGRAM_CHAT_ID` : 내 텔레그램 Chat ID 숫자
 2. **GitHub Pages 활성화**: `Settings` → `Pages` → `Build and deployment` → Source를 **`GitHub Actions`**로 선택
@@ -38,3 +38,9 @@ GitHub 저장소 페이지(https://github.com/smartjd824/trendline-lab)에서:
 - **매일 오전 10:00 (KST) 클라우드 자동 실행**:
   - 맥(Mac)이 꺼져 있거나 외출 중이어도 GitHub 서버가 자동으로 150종목 최신화 → 웹페이지 갱신 → **신호 뜬 전 종목 텔레그램 알림 발송**!
 - **원할 때 수동 갱신**: 스마트폰으로 GitHub 앱/웹 `Actions` → `Run workflow` 버튼만 누르면 언제든 즉시 최신화 가능!
+
+## 실전 검증 & 자동 재학습
+
+- 매일 빌드 시 **walk-forward 규칙 선택**(과거 4년 학습 → 이후 2년 검증), **상승점수 확률 보정**, **포트폴리오 백테스트**가 자동 재계산되어 `🧪 250종목 · 테마` 탭 하단 "실전 검증" 카드와 텔레그램 리포트에 반영됩니다.
+- 로컬 맥 실행(`run_alert_check.py`)은 학습 결과가 7일 이상 지나면 자동 재학습합니다. 즉시 재학습: `uv run python run_alert_check.py --retrain`
+- 백테스트·스캐너 기본값은 **다음날 시가 체결 + 시장별 비용(수수료·슬리피지·거래세)** 입니다. 설정 탭에서 구버전(당일 종가 체결)으로 바꿀 수 있습니다.

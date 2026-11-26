@@ -88,20 +88,72 @@ function pctClass(val) {
   return "";
 }
 
+/* ---------- Static-site encryption (AES-256-GCM, key = PBKDF2-SHA256(passcode)) ---------- */
+let DATA_KEY = null; // CryptoKey once unlocked
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToB64(bytes) {
+  let bin = "";
+  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin);
+}
+
+async function deriveDataKey(passcode, kdf) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(passcode), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: b64ToBytes(kdf.salt), iterations: kdf.iterations },
+    base,
+    256
+  );
+  return new Uint8Array(bits);
+}
+
+async function importAesKey(raw) {
+  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
+}
+
+async function decryptPayload(payload, key = DATA_KEY) {
+  if (!key) throw new Error("잠금 해제가 필요합니다.");
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(payload.iv) }, key, b64ToBytes(payload.ct));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
 async function apiFetch(url, opts = {}) {
   const res = await fetch(url, opts);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
   }
-  return res.json();
+  const data = await res.json();
+  if (IS_STATIC && data && data.enc === "aes-256-gcm") return decryptPayload(data);
+  return data;
 }
 
 /* ==================== INIT ==================== */
 async function ensureUnlocked(meta) {
-  if (!IS_STATIC || !meta.passcode_required || !meta.passcode_sha256) return;
-  const storageKey = "tlql_unlock_" + meta.passcode_sha256.slice(0, 12);
-  if (localStorage.getItem(storageKey) === meta.passcode_sha256) return;
+  // Returns the (decrypted) meta. Unprotected sites return meta unchanged.
+  if (!IS_STATIC || !meta.passcode_required || !meta.kdf) return meta;
+  const storageKey = "tlql_key_" + meta.kdf.salt.slice(0, 16);
+
+  const tryRaw = async (raw) => {
+    const key = await importAesKey(raw);
+    const inner = await decryptPayload(meta.meta_enc, key); // throws on wrong key
+    DATA_KEY = key;
+    return inner;
+  };
+
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved) return await tryRaw(b64ToBytes(saved));
+  } catch (e) {
+    try { localStorage.removeItem(storageKey); } catch (_) {}
+  }
 
   const overlay = $("lockOverlay");
   const input = $("lockPassInput");
@@ -109,16 +161,19 @@ async function ensureUnlocked(meta) {
   const errEl = $("lockError");
   overlay.classList.remove("hidden");
 
-  await new Promise((resolve) => {
+  return new Promise((resolve) => {
     const attempt = async () => {
       const val = input.value.trim();
       if (!val) return;
-      const hash = await sha256Hex(val);
-      if (hash === meta.passcode_sha256) {
-        localStorage.setItem(storageKey, hash);
+      errEl.textContent = "확인 중...";
+      try {
+        const raw = await deriveDataKey(val, meta.kdf);
+        const inner = await tryRaw(raw);
+        try { localStorage.setItem(storageKey, bytesToB64(raw)); } catch (_) {}
         overlay.classList.add("hidden");
-        resolve();
-      } else {
+        errEl.textContent = "";
+        resolve(inner);
+      } catch (e) {
         errEl.textContent = "비밀번호가 올바르지 않습니다.";
         input.value = "";
         input.focus();
@@ -138,7 +193,7 @@ function configureStaticModeUI(meta) {
   $("cacheStatusBadge").textContent = `매일 10:00 자동갱신 · ${meta.generated_at || ""}`;
   $("cacheStatusBadge").classList.add("ready");
   // Hide local-only controls that require live backend recomputation
-  ["applyChartParamsBtn", "toggleCustomBuilderBtn", "refreshResearchBtn", "runScannerBtn", "sendAlertsNowBtn"].forEach((id) => {
+  ["applyChartParamsBtn", "toggleCustomBuilderBtn", "refreshResearchBtn", "runScannerBtn", "sendAlertsNowBtn", "rebuildAdvancedBtn"].forEach((id) => {
     if ($(id)) $(id).style.display = "none";
   });
   const alertCard = document.querySelector(".alert-settings-card");
@@ -156,8 +211,8 @@ function configureStaticModeUI(meta) {
 async function init() {
   bindEvents();
   try {
-    const meta = IS_STATIC ? await apiFetch("./data/meta.json") : await apiFetch("/api/assets");
-    await ensureUnlocked(meta);
+    const rawMeta = IS_STATIC ? await apiFetch("./data/meta.json") : await apiFetch("/api/assets");
+    const meta = await ensureUnlocked(rawMeta);
 
     state.assets = meta.assets;
     state.themes = meta.themes || [];
@@ -429,10 +484,13 @@ function populateSettingsForm(settings) {
   $("cfgTgChatId").value = a.telegram_chat_id || "";
   $("cfgDiscord").checked = !!a.discord_enabled;
   $("cfgDiscordUrl").value = a.discord_webhook_url || "";
+  if ($("cfgExecution")) $("cfgExecution").value = settings.execution || "next_open";
+  if ($("cfgCostModel")) $("cfgCostModel").value = settings.cost_model || "market";
 }
 
 /* ==================== EVENTS ==================== */
 function bindEvents() {
+  if ($("rebuildAdvancedBtn")) $("rebuildAdvancedBtn").addEventListener("click", () => loadAdvanced(true));
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -449,6 +507,7 @@ function bindEvents() {
       } else if (btn.dataset.tab === "research" && !state.researchData) {
         await loadResearch(false);
         await loadExitComparison();
+        await loadAdvanced();
       } else if (btn.dataset.tab === "scanner") {
         await loadScanner();
       } else if (btn.dataset.tab === "chart") {
@@ -1715,7 +1774,9 @@ function renderTop30Board() {
           <td>
             <div class="prob-cell">
               <div class="prob-bar-track"><div class="prob-bar-fill" style="width:${prob}%;background:${probBarColor(prob)}"></div></div>
-              <div style="text-align:right"><span class="prob-num" style="color:${prob >= 66 ? "#69f0ae" : prob >= 56 ? "#ffd54f" : prob < 42 ? "#ff8a80" : "#c5d1e6"}">${prob.toFixed(1)}%</span>${probDeltaStr}</div>
+              <div style="text-align:right"><span class="prob-num" style="color:${prob >= 66 ? "#69f0ae" : prob >= 56 ? "#ffd54f" : prob < 42 ? "#ff8a80" : "#c5d1e6"}">${prob.toFixed(1)}</span>${probDeltaStr}${
+                it.calib_hit_prob != null ? `<div class="muted" style="font-size:10.5px" title="과거 보정: 1차 목표가 선도달 확률">목표도달 ${it.calib_hit_prob.toFixed(0)}%</div>` : ""
+              }</div>
             </div>
           </td>
           <td><span class="rate-badge ${disp.badgeClass}">${disp.label}</span></td>
@@ -2043,6 +2104,8 @@ async function saveUserSettings() {
     near_threshold_pct: Number($("nearPctInput").value) || 3.0,
     active_strategy: state.scannerStrategy,
     exit_rule: state.exitRule,
+    execution: $("cfgExecution") ? $("cfgExecution").value : "next_open",
+    cost_model: $("cfgCostModel") ? $("cfgCostModel").value : "market",
     alerts: {
       macos_enabled: $("cfgMacos").checked,
       notify_near_breakout: $("cfgNotifyNear").checked,
@@ -2099,3 +2162,143 @@ async function sendAlertsNow() {
 }
 
 init();
+
+
+/* ==================== ADVANCED VALIDATION (walk-forward · portfolio · calibration) ==================== */
+let portfolioEquityChart = null;
+
+const fmtNum = (v, d = 1, suffix = "") => (v == null || Number.isNaN(Number(v)) ? "-" : Number(v).toFixed(d) + suffix);
+
+async function loadAdvanced(rebuild = false) {
+  const btn = $("rebuildAdvancedBtn");
+  try {
+    let data;
+    if (IS_STATIC) {
+      data = await apiFetch("./data/advanced.json");
+    } else if (rebuild) {
+      btn.disabled = true;
+      btn.textContent = "⏳ 재학습 중 (2~4분)...";
+      data = await apiFetch("/api/research/advanced/rebuild", { method: "POST" });
+      showToast("Walk-forward · 보정 · 포트폴리오 재학습 완료! 스캐너에 반영됩니다.");
+      state.scannerData = null;
+    } else {
+      data = await apiFetch("/api/research/advanced");
+    }
+    state.advancedData = data;
+    renderAdvanced();
+  } catch (err) {
+    $("advancedMeta").textContent = "검증 데이터 없음 — '재학습'을 눌러 생성하세요. (" + err.message + ")";
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "↻ 재학습 (2~4분)";
+    }
+  }
+}
+
+function renderAdvanced() {
+  const d = state.advancedData || {};
+  const wf = d.walk_forward;
+  const pf = d.portfolio;
+  const cal = d.calibration;
+
+  $("advancedMeta").textContent = wf
+    ? `생성: ${wf.generated_at} · 방법: ${wf.method} · 체결: ${wf.execution} · 비용: ${wf.cost_model}`
+    : "아직 walk-forward 결과가 없습니다. (현재 스캐너는 기본 규칙 사용)";
+
+  const mkts = wf ? Object.entries(wf.markets || {}) : [];
+  $("walkForwardBody").innerHTML = mkts.length
+    ? mkts
+        .map(([m, v]) => {
+          const val = v.validation || {};
+          const oos = val.test_oos || {};
+          const rankCls = val.oos_rank <= Math.ceil(val.combos * 0.25) ? "pos" : val.oos_rank > val.combos / 2 ? "neg" : "";
+          return `<tr>
+            <td><span class="mkt-tag mkt-${m}">${m}</span></td>
+            <td>${val.selected ? val.selected.label : "-"}<div class="muted">${v.windows.train.join(" ~ ")}</div></td>
+            <td class="num">${fmtNum(val.train && val.train.score, 1)}</td>
+            <td class="num"><b>${fmtNum(oos.score, 1)}</b><div class="muted">평균 ${fmtNum(val.avg_combo_test_score, 1)}</div></td>
+            <td class="num ${rankCls}">${val.oos_rank} / ${val.combos}</td>
+            <td class="num ${pctClass(oos.avg_return_pct)}">${fmtPct(oos.avg_return_pct)}<div class="muted">${fmtPct(oos.avg_bnh_pct)}</div></td>
+            <td class="num">${fmtNum(oos.avg_win_rate_pct, 1, "%")}<div class="muted">${fmtNum(oos.avg_mdd_pct, 1, "%")}</div></td>
+            <td><b>${v.live_rule.label}</b><div class="muted">${v.windows.live.join(" ~ ")}</div></td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="8" class="muted" style="text-align:center;padding:18px;">데이터 없음</td></tr>`;
+
+  const pmk = pf ? Object.entries(pf.markets || {}) : [];
+  $("portfolioBody").innerHTML = pmk.length
+    ? pmk
+        .map(([m, v]) =>
+          v.error
+            ? `<tr><td>${m}</td><td colspan="8" class="muted">${v.error}</td></tr>`
+            : `<tr>
+            <td><span class="mkt-tag mkt-${m}">${m}</span></td>
+            <td class="num ${pctClass(v.total_return_pct)}"><b>${fmtPct(v.total_return_pct)}</b></td>
+            <td class="num ${pctClass(v.cagr_pct)}">${fmtPct(v.cagr_pct)}</td>
+            <td class="num neg">${fmtNum(v.mdd_pct, 1, "%")}</td>
+            <td class="num">${fmtNum(v.sharpe, 2)}</td>
+            <td class="num">${fmtNum(v.avg_invested_pct, 0, "%")}</td>
+            <td class="num">${v.trades_taken} / ${v.trades_skipped}</td>
+            <td class="num">${fmtNum(v.win_rate_pct, 1, "%")}</td>
+            <td class="num ${pctClass(v.bnh_return_pct)}">${fmtPct(v.bnh_return_pct)} <span class="muted">(${fmtNum(v.bnh_mdd_pct, 1, "%")})</span></td>
+          </tr>`
+        )
+        .join("")
+    : `<tr><td colspan="9" class="muted" style="text-align:center;padding:18px;">데이터 없음</td></tr>`;
+
+  const all = pf && pf.markets && pf.markets.ALL;
+  if (portfolioEquityChart) portfolioEquityChart.destroy();
+  if (all && all.equity_curve && window.Chart) {
+    const eq = all.equity_curve;
+    portfolioEquityChart = new Chart($("portfolioEquityChart"), {
+      type: "line",
+      data: {
+        labels: eq.map((p) => p.time),
+        datasets: [
+          { label: "포트폴리오 누적수익(%)", data: eq.map((p) => p.strategy), borderColor: "#2979ff", backgroundColor: "rgba(41,121,255,0.12)", fill: true, borderWidth: 2, pointRadius: 0 },
+          { label: "동일비중 Buy & Hold(%)", data: eq.map((p) => p.bnh), borderColor: "#78909c", borderDash: [4, 4], borderWidth: 1.5, pointRadius: 0 },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: "#b7c6de", font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: "#7f8fa6", maxTicksLimit: 6 }, grid: { display: false } },
+          y: { ticks: { color: "#7f8fa6", callback: (v) => v + "%" }, grid: { color: "rgba(34,44,60,0.5)" } },
+        },
+      },
+    });
+  }
+
+  if (cal && cal.bins) {
+    $("calibMeta").textContent = `${cal.definition} · 표본 ${cal.samples.toLocaleString()}개 · 기준 확률 ${cal.base_hit_pct}% · 점수↔20일수익 순위상관 ${cal.score_fwd_rank_corr}`;
+    $("calibBody").innerHTML = cal.bins
+      .filter((b) => b.n > 0)
+      .map(
+        (b) => `<tr>
+          <td>${b.lo} ~ ${b.hi}</td>
+          <td class="num">${b.n.toLocaleString()}</td>
+          <td class="num">${fmtNum(b.raw_hit_pct, 1, "%")}</td>
+          <td class="num"><b>${fmtNum(b.hit_prob_pct, 1, "%")}</b></td>
+          <td class="num">${fmtNum(b.up_prob_pct, 1, "%")}</td>
+          <td class="num ${pctClass(b.avg_fwd_ret_pct)}">${fmtPct(b.avg_fwd_ret_pct)}</td>
+        </tr>`
+      )
+      .join("");
+  } else {
+    $("calibMeta").textContent = "보정 데이터 없음";
+    $("calibBody").innerHTML = "";
+  }
+
+  $("advancedCaveat").textContent = [
+    wf && wf.caveat,
+    cal && cal.caveat,
+    all && all.note,
+    "OOS 순위가 하위권이면 학습 구간 성과가 과최적화였다는 신호입니다.",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}

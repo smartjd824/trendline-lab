@@ -62,6 +62,8 @@ def main() -> None:
         help="작업 완료 후 사용자가 3분 이상 유휴 상태(자동 기상)이면 다시 잠자기 모드로 복귀",
     )
     parser.add_argument("--idle-threshold", type=int, default=180, help="자동 잠자기 판단 유휴 시간(초, 기본 180초)")
+    parser.add_argument("--retrain", action="store_true", help="walk-forward 규칙·확률 보정·포트폴리오를 즉시 재학습")
+    parser.add_argument("--retrain-days", type=float, default=7.0, help="이 일수보다 오래된 학습 결과는 자동 재학습 (기본 7일)")
     parser.add_argument("--dry-run", action="store_true", help="알림 발송·잠자기 없이 스캔 결과만 출력")
     args = parser.parse_args()
 
@@ -77,6 +79,16 @@ def main() -> None:
                 f"[Sync] 요청={sync_res['requested']} 갱신={len(sync_res['updated'])} 실패={len(sync_res['failed'])}",
                 flush=True,
             )
+
+    from backend.research_pipeline import artifacts_age_days, rebuild_advanced_research
+
+    age = artifacts_age_days()
+    if args.retrain or age is None or age >= args.retrain_days:
+        print(f"[Retrain] 학습 결과 {'없음' if age is None else f'{age:.1f}일 경과'} → walk-forward·보정·포트폴리오 재학습", flush=True)
+        try:
+            rebuild_advanced_research()
+        except Exception as exc:  # never block the daily alert because of research
+            print(f"[Retrain] 실패 — 기존/기본 규칙으로 진행: {exc}", flush=True)
 
     if args.dry_run:
         from backend.scanner import format_full_alert_report, scan_all_assets

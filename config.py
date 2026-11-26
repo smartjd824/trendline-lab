@@ -22,7 +22,7 @@ MARKETS = ["ALL", "KOSPI", "KOSDAQ", "US", "CRYPTO"]
 
 # Realistic one-way trading costs per market (fraction of trade value), used when cost_model="market".
 #   buy  = commission + slippage
-#   sell = commission + slippage (+ KR securities transaction tax, ~0.20% in 2026 — verify current rate)
+#   sell = commission + slippage (+ KR securities transaction tax 0.20% from 2026: KOSPI 0.05% + 농특세 0.15%, KOSDAQ 0.20%)
 # Adjust to match your broker. Index/macro rows approximate ETF trading costs.
 MARKET_COSTS: dict[str, dict[str, float]] = {
     "KOSPI": {"buy": 0.00015 + 0.0010, "sell": 0.00015 + 0.0010 + 0.0020},
@@ -46,13 +46,41 @@ THEMES: list[dict[str, str]] = [
     {"id": "코인·디지털자산", "label": "🪙 코인·디지털자산"},
 ]
 
-# 150-asset 2Y/4Y/6Y research-backed optimal (entry, exit) combo per market
-MARKET_BEST_RULES: dict[str, dict[str, str]] = {
+# FALLBACK (entry, exit) combo per market — originally chosen in-sample with same-close fills.
+# When data/market_rules.json exists (written by walk-forward selection in build_static_site.py),
+# get_market_rules() uses those learned rules instead.
+MARKET_BEST_RULES: dict[str, dict[str, Any]] = {
     "KOSPI": {"strategy_id": "S1", "exit_rule": "dead_cross", "label": "S1+데드크로스"},
     "KOSDAQ": {"strategy_id": "S3", "exit_rule": "long_lower", "label": "S3+장기하단"},
     "US": {"strategy_id": "S3", "exit_rule": "ma200_2d", "label": "S3+MA200홀딩"},
     "CRYPTO": {"strategy_id": "S5", "exit_rule": "ma20_2d", "label": "S5+MA20이탈"},
 }
+
+LEARNED_RULES_PATH = DATA_DIR / "market_rules.json"
+CALIBRATION_PATH = DATA_DIR / "calibration.json"
+PORTFOLIO_PATH = DATA_DIR / "portfolio_backtest.json"
+
+# Market breadth (% of that market's assets above MA200) below which new entries are skipped
+REGIME_MIN_BREADTH_PCT = 30.0
+
+
+def read_json_file(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    except Exception:
+        return None
+
+
+def get_market_rules() -> dict[str, dict[str, Any]]:
+    """Walk-forward learned per-market rules if available, else the static fallback."""
+    rules = {k: {"regime_filter": False, "stop_mode": "fixed", **v} for k, v in MARKET_BEST_RULES.items()}
+    learned = read_json_file(LEARNED_RULES_PATH)
+    if learned and isinstance(learned.get("markets"), dict):
+        for mkt, info in learned["markets"].items():
+            live = info.get("live_rule") if isinstance(info, dict) else None
+            if live and live.get("strategy_id") and live.get("exit_rule"):
+                rules[mkt] = {"regime_filter": False, "stop_mode": "fixed", **live, "source": "walk_forward"}
+    return rules
 
 
 class AssetInfo(TypedDict):
@@ -380,8 +408,8 @@ DEFAULT_SETTINGS = {
     "exit_rule": "default",
     # "close": fill at the signal bar's close (legacy, slightly optimistic)
     # "next_open": signal on close -> fill at next bar's open, stops/targets trigger intraday (realistic)
-    "execution": "close",
-    "cost_model": "flat",  # "flat" (fee_rate per side) | "market" (MARKET_COSTS incl. KR sell tax & slippage)
+    "execution": "next_open",
+    "cost_model": "market",  # "flat" (fee_rate per side) | "market" (MARKET_COSTS incl. KR sell tax & slippage)
     "alerts": {
         "macos_enabled": False,
         "telegram_enabled": False,

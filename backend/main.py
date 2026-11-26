@@ -48,8 +48,8 @@ class CustomResearchRequest(BaseModel):
     price_source: str = "wick"
     scale_mode: str = "linear"
     fee_rate: float = 0.001
-    execution: str = "close"
-    cost_model: str = "flat"
+    execution: str = "next_open"
+    cost_model: str = "market"
     custom_params: dict[str, Any] = DEFAULT_CUSTOM_PARAMS
 
 
@@ -62,8 +62,8 @@ class SettingsPayload(BaseModel):
     near_threshold_pct: float = 3.0
     active_strategy: str = "S5"
     exit_rule: str = "default"
-    execution: str = "close"
-    cost_model: str = "flat"
+    execution: str = "next_open"
+    cost_model: str = "market"
     alerts: dict[str, Any]
 
 
@@ -103,8 +103,8 @@ def api_chart(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
-    execution: str = Query("close", pattern="^(close|next_open)$"),
-    cost_model: str = Query("flat", pattern="^(flat|market)$"),
+    execution: str = Query("next_open", pattern="^(close|next_open)$"),
+    cost_model: str = Query("market", pattern="^(flat|market)$"),
 ):
     if symbol not in ASSET_MAP and symbol not in INDEX_MAP:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {symbol}")
@@ -247,8 +247,8 @@ def api_research(
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
     exit_rule: str = Query("default"),
-    execution: str = Query("close", pattern="^(close|next_open)$"),
-    cost_model: str = Query("flat", pattern="^(flat|market)$"),
+    execution: str = Query("next_open", pattern="^(close|next_open)$"),
+    cost_model: str = Query("market", pattern="^(flat|market)$"),
 ):
     return run_research_matrix(
         short_window=short_window,
@@ -271,8 +271,8 @@ def api_research_exits(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     fee_rate: float = Query(0.001, ge=0.0, le=0.02),
-    execution: str = Query("close", pattern="^(close|next_open)$"),
-    cost_model: str = Query("flat", pattern="^(flat|market)$"),
+    execution: str = Query("next_open", pattern="^(close|next_open)$"),
+    cost_model: str = Query("market", pattern="^(flat|market)$"),
 ):
     return run_exit_rule_comparison(
         strategy_id=strategy_id,
@@ -301,6 +301,46 @@ def api_research_custom(req: CustomResearchRequest):
     )
 
 
+@app.get("/api/research/advanced")
+def api_research_advanced():
+    """Cached walk-forward rules, score calibration and portfolio backtest (built by rebuild / static build)."""
+    from backend.research_pipeline import load_advanced_research
+
+    data = load_advanced_research()
+    if not data["walk_forward"]:
+        raise HTTPException(status_code=404, detail="아직 생성되지 않았습니다. /api/research/advanced/rebuild 를 실행하세요.")
+    return data
+
+
+@app.post("/api/research/advanced/rebuild")
+def api_research_advanced_rebuild():
+    from backend.research_pipeline import load_advanced_research, rebuild_advanced_research
+
+    rebuild_advanced_research()
+    return load_advanced_research()
+
+
+@app.get("/api/portfolio")
+def api_portfolio(
+    market: str = Query("ALL", pattern="^(ALL|KOSPI|KOSDAQ|US|CRYPTO)$"),
+    years: int = Query(6, ge=1, le=7),
+    max_positions: int = Query(10, ge=1, le=50),
+    risk_per_trade_pct: float = Query(1.0, gt=0.0, le=10.0),
+    max_weight_pct: float = Query(15.0, gt=0.0, le=100.0),
+    execution: str = Query("next_open", pattern="^(close|next_open)$"),
+    cost_model: str = Query("market", pattern="^(flat|market)$"),
+):
+    from backend.analytics import run_portfolio_backtest
+    from backend.backtester import build_indicator_map
+    from config import get_market_rules
+
+    return run_portfolio_backtest(
+        build_indicator_map(), get_market_rules(), market=market, years=years, max_positions=max_positions,
+        risk_per_trade_pct=risk_per_trade_pct, max_weight_pct=max_weight_pct,
+        execution=execution, cost_model=cost_model,
+    )
+
+
 @app.get("/api/scanner")
 def api_scanner(
     strategy_id: str = Query("AUTO_BEST"),
@@ -310,8 +350,8 @@ def api_scanner(
     price_source: str = Query("wick"),
     scale_mode: str = Query("linear"),
     near_threshold_pct: float = Query(3.0, ge=0.5, le=15.0),
-    execution: str = Query("close", pattern="^(close|next_open)$"),
-    cost_model: str = Query("flat", pattern="^(flat|market)$"),
+    execution: str = Query("next_open", pattern="^(close|next_open)$"),
+    cost_model: str = Query("market", pattern="^(flat|market)$"),
 ):
     return scan_all_assets(
         strategy_id=strategy_id,
