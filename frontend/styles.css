@@ -1295,16 +1295,56 @@ body.chart-focus-mode { overflow: hidden; }
   background: #0d121a;
   border-bottom: 1px solid var(--border);
 }
+.focus-picker-wrap { position: relative; flex: 1; min-width: 140px; }
 .focus-asset-label {
-  flex: 1;
-  min-width: 120px;
+  max-width: 100%;
   font-weight: 600;
   color: var(--text);
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: inherit;
 }
+.focus-asset-label:hover { border-color: var(--blue); }
+.focus-picker {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 2100;
+  width: min(440px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 10px;
+  flex-direction: column;
+  gap: 8px;
+}
+.focus-picker.open { display: flex; }
+.focus-picker input { width: 100%; }
+.focus-picker-list { max-height: min(420px, 60vh); overflow-y: auto; }
+.focus-picker-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.focus-picker-item:hover, .focus-picker-item.hover { background: var(--surface-2); }
+.focus-picker-item.current .fp-name { color: var(--blue); }
+.fp-name { font-weight: 600; color: var(--text); white-space: nowrap; }
+.fp-sym { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.focus-picker-empty { color: var(--muted); padding: 12px; text-align: center; font-size: 12.5px; }
 @media (max-width: 720px) {
   .chart-main.focus { padding: 4px; }
   .chart-main.focus .tv-chart-container { height: auto; }

@@ -925,7 +925,92 @@ function updateFocusLabel() {
   if (!el) return;
   const name = $("chartAssetName")?.textContent || "";
   const meta = $("chartAssetMeta")?.textContent || "";
-  el.textContent = `${name}  ·  ${meta}`;
+  el.textContent = `${name}  ·  ${meta}  ▾`;
+}
+
+// ---- 크게 보기 화면의 종목 검색·선택 창 ----
+const MARKET_KO = { KOSPI: "코스피", KOSDAQ: "코스닥", US: "미국", CRYPTO: "코인" };
+let focusPickerMarket = "ALL";
+let focusPickerIdx = 0;
+
+function isFocusPickerOpen() {
+  return $("focusPicker")?.classList.contains("open");
+}
+
+function renderFocusPicker() {
+  const q = $("focusPickerInput").value.trim().toLowerCase();
+  const list = state.assets.filter((a) => {
+    if (focusPickerMarket !== "ALL" && a.market !== focusPickerMarket) return false;
+    if (!q) return true;
+    return (
+      a.name.toLowerCase().includes(q) ||
+      a.symbol.toLowerCase().includes(q) ||
+      (a.theme || "").toLowerCase().includes(q)
+    );
+  });
+  if (focusPickerIdx >= list.length) focusPickerIdx = Math.max(0, list.length - 1);
+  $("focusPickerList").innerHTML = list.length
+    ? list
+        .map(
+          (a, i) => `
+      <div class="focus-picker-item ${i === focusPickerIdx ? "hover" : ""} ${a.symbol === state.selectedSymbol ? "current" : ""}" data-sym="${escHtml(a.symbol)}">
+        <span class="fp-name">${escHtml(a.name)}</span>
+        <span class="fp-sym">${escHtml(a.symbol)}${a.theme ? " · " + escHtml(a.theme) : ""}</span>
+        <span class="mkt-tag mkt-${a.market}">${MARKET_KO[a.market] || a.market}</span>
+      </div>`
+        )
+        .join("")
+    : `<div class="focus-picker-empty">검색 결과가 없습니다</div>`;
+  $("focusPickerList").querySelectorAll(".focus-picker-item").forEach((el) => {
+    el.addEventListener("click", () => pickFocusAsset(el.dataset.sym));
+  });
+  const hov = $("focusPickerList").querySelector(".hover");
+  if (hov) hov.scrollIntoView({ block: "nearest" });
+}
+
+function openFocusPicker(open) {
+  const p = $("focusPicker");
+  p.classList.toggle("open", open);
+  if (open) {
+    $("focusPickerInput").value = "";
+    focusPickerIdx = 0;
+    renderFocusPicker();
+    setTimeout(() => $("focusPickerInput").focus(), 0);
+  }
+}
+
+function pickFocusAsset(sym) {
+  openFocusPicker(false);
+  if (!sym || sym === state.selectedSymbol) return;
+  state.selectedSymbol = sym;
+  renderAssetList();
+  loadChart(sym);
+}
+
+function setupFocusPicker() {
+  $("focusAssetLabel").addEventListener("click", (e) => {
+    e.stopPropagation();
+    openFocusPicker(!isFocusPickerOpen());
+  });
+  $("focusPicker").addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => { if (isFocusPickerOpen()) openFocusPicker(false); });
+  $("focusPickerInput").addEventListener("input", () => { focusPickerIdx = 0; renderFocusPicker(); });
+  $("focusPickerInput").addEventListener("keydown", (e) => {
+    const items = $("focusPickerList").querySelectorAll(".focus-picker-item");
+    if (e.key === "ArrowDown") { e.preventDefault(); focusPickerIdx = Math.min(items.length - 1, focusPickerIdx + 1); renderFocusPicker(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); focusPickerIdx = Math.max(0, focusPickerIdx - 1); renderFocusPicker(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (items[focusPickerIdx]) pickFocusAsset(items[focusPickerIdx].dataset.sym); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); openFocusPicker(false); }
+  });
+  $("focusPickerPills").addEventListener("click", (e) => {
+    if (!e.target.classList.contains("pill")) return;
+    $("focusPickerPills").querySelectorAll(".pill").forEach((b) => b.classList.remove("active"));
+    e.target.classList.add("active");
+    focusPickerMarket = e.target.dataset.market;
+    focusPickerIdx = 0;
+    renderFocusPicker();
+    $("focusPickerInput").focus();
+  });
 }
 
 function setChartFocus(on) {
@@ -933,7 +1018,7 @@ function setChartFocus(on) {
   if (!main) return;
   main.classList.toggle("focus", on);
   document.body.classList.toggle("chart-focus-mode", on);
-  if (!on) main.classList.remove("hide-tools");
+  if (!on) { main.classList.remove("hide-tools"); openFocusPicker(false); }
   $("chartFocusBtn").textContent = on ? "✕ 크게 보기 닫기" : "⛶ 차트 크게 보기";
   $("focusToolsBtn").textContent = main.classList.contains("hide-tools") ? "⚙ 설정 보이기" : "⚙ 설정 숨기기";
   updateFocusLabel();
@@ -950,6 +1035,7 @@ function stepFocusAsset(dir) {
 }
 
 function setupChartFocus() {
+  setupFocusPicker();
   $("chartFocusBtn").addEventListener("click", () => setChartFocus(!isChartFocus()));
   $("focusExitBtn").addEventListener("click", () => setChartFocus(false));
   $("focusPrevBtn").addEventListener("click", () => stepFocusAsset(-1));
@@ -964,7 +1050,9 @@ function setupChartFocus() {
     const tag = (e.target.tagName || "").toLowerCase();
     if (tag === "input" || tag === "select" || tag === "textarea") return;
     const chartTabOn = $("tab-chart")?.classList.contains("active");
+    if (e.key === "Escape" && isFocusPickerOpen()) { openFocusPicker(false); return; }
     if (e.key === "Escape" && isChartFocus()) { setChartFocus(false); return; }
+    if (e.key === "/" && isChartFocus()) { e.preventDefault(); openFocusPicker(true); return; }
     if (!chartTabOn) return;
     if ((e.key === "f" || e.key === "F" || e.key === "ㄹ") && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();

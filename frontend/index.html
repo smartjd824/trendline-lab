@@ -299,7 +299,20 @@
           <div class="chart-stage-wrap">
             <div class="focus-bar">
               <button id="focusPrevBtn" class="btn btn-secondary btn-sm" title="이전 종목 (Shift+←)">◀ 이전</button>
-              <span id="focusAssetLabel" class="focus-asset-label"></span>
+              <div class="focus-picker-wrap">
+                <button id="focusAssetLabel" class="focus-asset-label" title="눌러서 다른 종목 검색·선택 (단축키 /)"></button>
+                <div id="focusPicker" class="focus-picker">
+                  <input id="focusPickerInput" type="text" class="input-sm" placeholder="종목명·티커·테마 검색 (예: 하이닉스, NVDA, 로봇)" autocomplete="off" />
+                  <div class="market-pills" id="focusPickerPills">
+                    <button class="pill active" data-market="ALL">전체</button>
+                    <button class="pill" data-market="KOSPI">코스피</button>
+                    <button class="pill" data-market="KOSDAQ">코스닥</button>
+                    <button class="pill" data-market="US">미국</button>
+                    <button class="pill" data-market="CRYPTO">코인</button>
+                  </div>
+                  <div id="focusPickerList" class="focus-picker-list"></div>
+                </div>
+              </div>
               <button id="focusNextBtn" class="btn btn-secondary btn-sm" title="다음 종목 (Shift+→)">다음 ▶</button>
               <button id="focusToolsBtn" class="btn btn-secondary btn-sm" title="설정 막대 숨기기/보이기">⚙ 설정 숨기기</button>
               <button id="focusFitBtn" class="btn btn-secondary btn-sm" title="전체 기간 맞추기">↔ 전체 기간</button>
