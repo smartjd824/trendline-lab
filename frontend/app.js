@@ -995,8 +995,18 @@ function removeDrawObj(it) {
   try {
     if (it.type === "hline") draw.series.removePriceLine(it._obj);
     else tvChart.removeSeries(it._obj);
-  } catch {}
+  } catch (err) {
+    // 지우기에 실패하면 저장된 선 기준으로 차트를 새로 그려 확실히 지웁니다
+    console.warn("선 지우기 실패 → 차트 다시 그림", err);
+    draw.needRedraw = true;
+  }
   it._obj = null;
+}
+
+function redrawIfNeeded() {
+  if (!draw.needRedraw) return;
+  draw.needRedraw = false;
+  if (state.chartPayload) renderTradingViewChart(state.chartPayload);
 }
 
 function attachDrawings(symbol, candles, candleSeries) {
@@ -1035,6 +1045,8 @@ function setDrawHint(txt) { $("drawHint").textContent = txt || ""; }
 function setDrawTool(tool) {
   draw.tool = tool;
   draw.first = null;
+  drawMoveKey = "";
+  cancelAnimationFrame(drawMoveRaf);
   if (draw.temp) { try { tvChart.removeSeries(draw.temp); } catch {} draw.temp = null; }
   document.querySelectorAll("#drawBar .draw-btn[data-tool]").forEach((b) =>
     b.classList.toggle("active", b.dataset.tool === tool));
@@ -1081,11 +1093,18 @@ function eraseAt(param) {
     removeDrawObj(draw.items[best]);
     draw.items.splice(best, 1);
     saveDrawings();
+    redrawIfNeeded();
     setDrawHint(`선을 지웠습니다 · 남은 선 ${draw.items.length}개 (Esc 종료)`);
   }
 }
 
 function onDrawClick(param) {
+  if (!draw.tool) return;
+  const snap = { point: param && param.point ? { ...param.point } : null, logical: param ? param.logical : null };
+  setTimeout(() => handleDrawClick(snap), 0);
+}
+
+function handleDrawClick(param) {
   if (!draw.tool) return;
   if (draw.tool === "erase") { eraseAt(param); return; }
   const pt = pointFromParam(param);
@@ -1110,14 +1129,25 @@ function onDrawClick(param) {
   setDrawTool(null);
 }
 
+// 차트 콜백 안에서 시리즈를 바로 바꾸면 콜백이 다시 불려 무한 반복되므로,
+// 미리보기는 같은 점일 때 건너뛰고 다음 화면 갱신 때 한 번만 그립니다.
+let drawMoveKey = "";
+let drawMoveRaf = 0;
 function onDrawMove(param) {
   if (!draw.first || (draw.tool !== "seg" && draw.tool !== "ray")) return;
   const pt = pointFromParam(param);
   if (!pt) return;
-  const pts = linePoints(draw.tool, draw.first, pt);
-  if (!pts) return;
-  if (!draw.temp) draw.temp = makeLineSeries(draw.color, true);
-  draw.temp.setData(pts);
+  const key = `${draw.tool}|${pt.t}|${pt.p}`;
+  if (key === drawMoveKey) return;
+  drawMoveKey = key;
+  cancelAnimationFrame(drawMoveRaf);
+  drawMoveRaf = requestAnimationFrame(() => {
+    if (!draw.first) return;
+    const pts = linePoints(draw.tool, draw.first, pt);
+    if (!pts) return;
+    if (!draw.temp) draw.temp = makeLineSeries(draw.color, true);
+    draw.temp.setData(pts);
+  });
 }
 
 function undoDrawing() {
@@ -1126,6 +1156,7 @@ function undoDrawing() {
   removeDrawObj(it);
   saveDrawings();
   setDrawTool(null);
+  redrawIfNeeded();
 }
 
 function setupDrawing() {
@@ -1146,6 +1177,7 @@ function setupDrawing() {
     draw.items = [];
     saveDrawings();
     setDrawTool(null);
+    redrawIfNeeded();
   });
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
