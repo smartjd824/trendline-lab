@@ -318,6 +318,23 @@
               <button id="focusFitBtn" class="btn btn-secondary btn-sm" title="전체 기간 맞추기">↔ 전체 기간</button>
               <button id="focusExitBtn" class="btn btn-primary btn-sm" title="원래 화면으로 (Esc)">✕ 닫기</button>
             </div>
+            <div class="draw-bar" id="drawBar">
+              <span class="draw-label">✏️ 직접 긋기</span>
+              <button class="draw-btn" data-tool="seg" title="두 점을 클릭해 추세선 긋기">╱ 추세선</button>
+              <button class="draw-btn" data-tool="ray" title="두 점을 클릭하면 오늘까지 연장된 추세선">↗ 연장 추세선</button>
+              <button class="draw-btn" data-tool="hline" title="한 번 클릭해 지지·저항 수평선 긋기">― 수평선</button>
+              <button class="draw-btn" data-tool="erase" title="지울 선을 클릭">⌫ 지우개</button>
+              <span class="draw-colors" id="drawColors">
+                <button class="draw-color active" data-color="#ffeb3b" style="background:#ffeb3b" title="노랑"></button>
+                <button class="draw-color" data-color="#ff4081" style="background:#ff4081" title="분홍"></button>
+                <button class="draw-color" data-color="#40c4ff" style="background:#40c4ff" title="하늘"></button>
+                <button class="draw-color" data-color="#ffffff" style="background:#ffffff" title="흰색"></button>
+              </span>
+              <label class="draw-magnet" title="클릭한 곳 가까운 봉의 고가·저가에 선 끝을 붙입니다"><input type="checkbox" id="drawMagnet" checked /> 🧲 고·저점에 붙이기</label>
+              <button class="draw-btn" id="drawUndoBtn" title="마지막 선 지우기 (Ctrl/Cmd+Z)">↶ 되돌리기</button>
+              <button class="draw-btn" id="drawClearBtn" title="이 종목에 그린 선 모두 지우기">🗑 모두 지우기</button>
+              <span id="drawHint" class="draw-hint"></span>
+            </div>
             <div id="tvChartContainer" class="tv-chart-container"></div>
             <div id="trendlineInfoBar" class="trendline-info-bar"></div>
           </div>

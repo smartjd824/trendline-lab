@@ -434,6 +434,7 @@ function populateSettingsForm(settings) {
 /* ==================== EVENTS ==================== */
 function bindEvents() {
   setupChartFocus();
+  setupDrawing();
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -913,6 +914,246 @@ function renderTradingViewChart(data) {
   tvChart.timeScale().fitContent();
 
   updateFocusLabel();
+  attachDrawings(asset.symbol, candles, candleSeries);
+}
+
+// ==================== 직접 선 긋기 ====================
+// 선은 종목별로 이 브라우저(localStorage)에 저장됩니다.
+const DRAW_KEY = "tl_drawings_v1";
+const draw = {
+  tool: null,       // seg | ray | hline | erase
+  color: "#ffeb3b",
+  first: null,      // 첫 번째 점 {t, p}
+  temp: null,       // 미리보기 시리즈
+  items: [],        // {type, a, b, color, _obj}
+  symbol: null,
+  candles: [],
+  idx: new Map(),
+  series: null,
+};
+
+function loadAllDrawings() {
+  try { return JSON.parse(localStorage.getItem(DRAW_KEY) || "{}"); } catch { return {}; }
+}
+function saveDrawings() {
+  if (!draw.symbol) return;
+  const all = loadAllDrawings();
+  const list = draw.items.map(({ type, a, b, color }) => ({ type, a, b, color }));
+  if (list.length) all[draw.symbol] = list; else delete all[draw.symbol];
+  localStorage.setItem(DRAW_KEY, JSON.stringify(all));
+}
+
+function drawIsLog() { return state.scaleMode === "log"; }
+
+// 두 점을 지나는 직선의 i번째 봉 위치 값 (로그 스케일이면 로그 기준 직선)
+function lineValueAt(a, b, i) {
+  const ia = draw.idx.get(a.t), ib = draw.idx.get(b.t);
+  if (ia == null || ib == null || ia === ib) return null;
+  const k = (i - ia) / (ib - ia);
+  if (drawIsLog() && a.p > 0 && b.p > 0) return Math.exp(Math.log(a.p) + k * (Math.log(b.p) - Math.log(a.p)));
+  return a.p + k * (b.p - a.p);
+}
+
+function linePoints(type, a, b) {
+  const ia = draw.idx.get(a.t), ib = draw.idx.get(b.t);
+  if (ia == null || ib == null || ia === ib) return null;
+  const [p1, p2] = ia < ib ? [a, b] : [b, a];
+  const pts = [{ time: p1.t, value: p1.p }, { time: p2.t, value: p2.p }];
+  if (type === "ray") {
+    const last = draw.candles.length - 1;
+    const i2 = Math.max(ia, ib);
+    if (last > i2) pts.push({ time: draw.candles[last].time, value: lineValueAt(a, b, last) });
+  }
+  return pts;
+}
+
+function makeLineSeries(color, dashed) {
+  return tvChart.addLineSeries({
+    color, lineWidth: 2, lineStyle: dashed ? 2 : 0,
+    lastValueVisible: false, priceLineVisible: false,
+    crosshairMarkerVisible: false, autoscaleInfoProvider: () => null,
+  });
+}
+
+function renderDrawItem(it) {
+  if (it.type === "hline") {
+    it._obj = draw.series.createPriceLine({
+      price: it.a.p, color: it.color, lineWidth: 2, lineStyle: 0,
+      axisLabelVisible: true, title: "내 선",
+    });
+  } else {
+    const pts = linePoints(it.type, it.a, it.b);
+    if (!pts) return false;
+    it._obj = makeLineSeries(it.color, false);
+    it._obj.setData(pts);
+  }
+  return true;
+}
+
+function removeDrawObj(it) {
+  if (!it._obj) return;
+  try {
+    if (it.type === "hline") draw.series.removePriceLine(it._obj);
+    else tvChart.removeSeries(it._obj);
+  } catch {}
+  it._obj = null;
+}
+
+function attachDrawings(symbol, candles, candleSeries) {
+  draw.symbol = symbol;
+  draw.candles = candles;
+  draw.series = candleSeries;
+  draw.idx = new Map(candles.map((c, i) => [c.time, i]));
+  draw.first = null;
+  draw.temp = null;
+  draw.items = (loadAllDrawings()[symbol] || []).filter((it) => {
+    const ok = renderDrawItem(it);
+    return ok;
+  });
+  tvChart.subscribeClick(onDrawClick);
+  tvChart.subscribeCrosshairMove(onDrawMove);
+  setDrawTool(draw.tool === "erase" ? "erase" : null);
+}
+
+// 클릭 위치 → {t, p} (자석: 가까운 봉의 고가/저가에 붙이기)
+function pointFromParam(param) {
+  if (!param || !param.point || param.logical == null || !draw.candles.length) return null;
+  const i = Math.max(0, Math.min(draw.candles.length - 1, Math.round(param.logical)));
+  const c = draw.candles[i];
+  let p = draw.series.coordinateToPrice(param.point.y);
+  if (p == null) return null;
+  if ($("drawMagnet").checked && draw.tool !== "erase") {
+    const yH = draw.series.priceToCoordinate(c.high), yL = draw.series.priceToCoordinate(c.low);
+    const dH = Math.abs(param.point.y - yH), dL = Math.abs(param.point.y - yL);
+    if (Math.min(dH, dL) <= 14) p = dH <= dL ? c.high : c.low;
+  }
+  return { t: c.time, p: Number(p.toPrecision(8)) };
+}
+
+function setDrawHint(txt) { $("drawHint").textContent = txt || ""; }
+
+function setDrawTool(tool) {
+  draw.tool = tool;
+  draw.first = null;
+  if (draw.temp) { try { tvChart.removeSeries(draw.temp); } catch {} draw.temp = null; }
+  document.querySelectorAll("#drawBar .draw-btn[data-tool]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tool === tool));
+  const cont = $("tvChartContainer");
+  if (cont) cont.style.cursor = tool ? (tool === "erase" ? "not-allowed" : "crosshair") : "";
+  const hints = {
+    seg: "첫 번째 점을 클릭하세요 (Esc 취소)",
+    ray: "첫 번째 점을 클릭하세요 — 오늘까지 연장됩니다 (Esc 취소)",
+    hline: "수평선을 그을 가격을 클릭하세요 (Esc 취소)",
+    erase: "지울 선을 클릭하세요 (Esc 종료)",
+  };
+  setDrawHint(tool ? hints[tool] : (draw.items.length ? `이 종목에 그린 선 ${draw.items.length}개` : ""));
+}
+
+function distToSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const L = dx * dx + dy * dy;
+  let t = L ? ((px - x1) * dx + (py - y1) * dy) / L : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function eraseAt(param) {
+  if (!param || !param.point) return;
+  const ts = tvChart.timeScale();
+  let best = -1, bestD = 10;
+  draw.items.forEach((it, k) => {
+    let d = Infinity;
+    if (it.type === "hline") {
+      const y = draw.series.priceToCoordinate(it.a.p);
+      if (y != null) d = Math.abs(param.point.y - y);
+    } else {
+      const pts = linePoints(it.type, it.a, it.b) || [];
+      for (let j = 0; j + 1 < pts.length; j++) {
+        const x1 = ts.timeToCoordinate(pts[j].time), y1 = draw.series.priceToCoordinate(pts[j].value);
+        const x2 = ts.timeToCoordinate(pts[j + 1].time), y2 = draw.series.priceToCoordinate(pts[j + 1].value);
+        if ([x1, y1, x2, y2].some((v) => v == null)) continue;
+        d = Math.min(d, distToSeg(param.point.x, param.point.y, x1, y1, x2, y2));
+      }
+    }
+    if (d < bestD) { bestD = d; best = k; }
+  });
+  if (best >= 0) {
+    removeDrawObj(draw.items[best]);
+    draw.items.splice(best, 1);
+    saveDrawings();
+    setDrawHint(`선을 지웠습니다 · 남은 선 ${draw.items.length}개 (Esc 종료)`);
+  }
+}
+
+function onDrawClick(param) {
+  if (!draw.tool) return;
+  if (draw.tool === "erase") { eraseAt(param); return; }
+  const pt = pointFromParam(param);
+  if (!pt) return;
+  if (draw.tool === "hline") {
+    const it = { type: "hline", a: pt, b: null, color: draw.color };
+    if (renderDrawItem(it)) { draw.items.push(it); saveDrawings(); }
+    setDrawTool(null);
+    return;
+  }
+  if (!draw.first) {
+    draw.first = pt;
+    setDrawHint("두 번째 점을 클릭하세요 (Esc 취소)");
+    return;
+  }
+  if (draw.idx.get(pt.t) === draw.idx.get(draw.first.t)) {
+    setDrawHint("같은 날짜입니다 — 다른 날짜를 클릭하세요");
+    return;
+  }
+  const it = { type: draw.tool, a: draw.first, b: pt, color: draw.color };
+  if (renderDrawItem(it)) { draw.items.push(it); saveDrawings(); }
+  setDrawTool(null);
+}
+
+function onDrawMove(param) {
+  if (!draw.first || (draw.tool !== "seg" && draw.tool !== "ray")) return;
+  const pt = pointFromParam(param);
+  if (!pt) return;
+  const pts = linePoints(draw.tool, draw.first, pt);
+  if (!pts) return;
+  if (!draw.temp) draw.temp = makeLineSeries(draw.color, true);
+  draw.temp.setData(pts);
+}
+
+function undoDrawing() {
+  const it = draw.items.pop();
+  if (!it) return;
+  removeDrawObj(it);
+  saveDrawings();
+  setDrawTool(null);
+}
+
+function setupDrawing() {
+  $("drawBar").addEventListener("click", (e) => {
+    const btn = e.target.closest(".draw-btn[data-tool]");
+    if (btn) { setDrawTool(draw.tool === btn.dataset.tool ? null : btn.dataset.tool); return; }
+    const col = e.target.closest(".draw-color");
+    if (col) {
+      draw.color = col.dataset.color;
+      $("drawColors").querySelectorAll(".draw-color").forEach((b) => b.classList.toggle("active", b === col));
+    }
+  });
+  $("drawUndoBtn").addEventListener("click", undoDrawing);
+  $("drawClearBtn").addEventListener("click", () => {
+    if (!draw.items.length) return;
+    if (!confirm(`이 종목에 그린 선 ${draw.items.length}개를 모두 지울까요?`)) return;
+    draw.items.forEach(removeDrawObj);
+    draw.items = [];
+    saveDrawings();
+    setDrawTool(null);
+  });
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea") return;
+    if (!$("tab-chart")?.classList.contains("active")) return;
+    if (e.key === "Escape" && draw.tool) { e.stopImmediatePropagation(); setDrawTool(null); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undoDrawing(); }
+  }, true);
 }
 
 // ==================== 차트 크게 보기(전체화면) ====================

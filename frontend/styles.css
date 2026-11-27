@@ -1350,3 +1350,36 @@ body.chart-focus-mode { overflow: hidden; }
   .chart-main.focus .tv-chart-container { height: auto; }
   .chart-main.focus .chart-toolbar { max-height: 38vh; overflow-y: auto; }
 }
+
+/* ==================== 직접 선 긋기 ==================== */
+.draw-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #0d121a;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.draw-label { color: var(--muted); font-weight: 600; margin-right: 2px; }
+.draw-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.draw-btn:hover { border-color: var(--blue); }
+.draw-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.draw-colors { display: inline-flex; gap: 4px; margin: 0 4px; }
+.draw-color {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+}
+.draw-color.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--blue); }
+.draw-magnet { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+.draw-hint { color: var(--amber); margin-left: 4px; }
