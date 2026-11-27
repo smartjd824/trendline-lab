@@ -12,6 +12,10 @@ on:
         type: choice
         options: [AUTO, MORNING, AFTERNOON]
         default: AUTO
+      notify:
+        description: "텔레그램 알림 보내기 (끄면 사이트만 갱신)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write  # track/forward_log.csv 커밋 (실전 검증 기록 + 60일 무활동 자동중지 방지)
@@ -61,6 +65,7 @@ jobs:
         run: uv run python build_static_site.py
 
       - name: 텔레그램 알림 발송 + 모의 성과 기록
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.notify != 'false'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -69,6 +74,7 @@ jobs:
         run: uv run python cloud_alert.py
 
       - name: 모의 성과 기록 커밋
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.notify != 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

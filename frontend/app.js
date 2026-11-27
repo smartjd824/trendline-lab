@@ -433,6 +433,7 @@ function populateSettingsForm(settings) {
 
 /* ==================== EVENTS ==================== */
 function bindEvents() {
+  setupChartFocus();
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -740,8 +741,7 @@ function renderTradingViewChart(data) {
       timeVisible: false,
       rightOffset: 8,
     },
-    width: container.clientWidth,
-    height: container.clientHeight,
+    autoSize: true,
   });
 
   const candleSeries = tvChart.addCandlestickSeries({
@@ -912,11 +912,69 @@ function renderTradingViewChart(data) {
 
   tvChart.timeScale().fitContent();
 
-  window.onresize = () => {
-    if (tvChart && container.clientWidth > 0) {
-      tvChart.applyOptions({ width: container.clientWidth });
+  updateFocusLabel();
+}
+
+// ==================== 차트 크게 보기(전체화면) ====================
+function isChartFocus() {
+  return document.querySelector(".chart-main")?.classList.contains("focus");
+}
+
+function updateFocusLabel() {
+  const el = $("focusAssetLabel");
+  if (!el) return;
+  const name = $("chartAssetName")?.textContent || "";
+  const meta = $("chartAssetMeta")?.textContent || "";
+  el.textContent = `${name}  ·  ${meta}`;
+}
+
+function setChartFocus(on) {
+  const main = document.querySelector(".chart-main");
+  if (!main) return;
+  main.classList.toggle("focus", on);
+  document.body.classList.toggle("chart-focus-mode", on);
+  if (!on) main.classList.remove("hide-tools");
+  $("chartFocusBtn").textContent = on ? "✕ 크게 보기 닫기" : "⛶ 차트 크게 보기";
+  $("focusToolsBtn").textContent = main.classList.contains("hide-tools") ? "⚙ 설정 보이기" : "⚙ 설정 숨기기";
+  updateFocusLabel();
+  // 크기가 바뀐 뒤 다시 맞춤
+  setTimeout(() => { if (tvChart) tvChart.timeScale().fitContent(); }, 80);
+}
+
+function stepFocusAsset(dir) {
+  const items = Array.from($("assetList").querySelectorAll(".asset-item"));
+  if (!items.length) return;
+  let idx = items.findIndex((el) => el.dataset.sym === state.selectedSymbol);
+  idx = idx < 0 ? 0 : (idx + dir + items.length) % items.length;
+  items[idx].click();
+}
+
+function setupChartFocus() {
+  $("chartFocusBtn").addEventListener("click", () => setChartFocus(!isChartFocus()));
+  $("focusExitBtn").addEventListener("click", () => setChartFocus(false));
+  $("focusPrevBtn").addEventListener("click", () => stepFocusAsset(-1));
+  $("focusNextBtn").addEventListener("click", () => stepFocusAsset(1));
+  $("focusFitBtn").addEventListener("click", () => tvChart && tvChart.timeScale().fitContent());
+  $("focusToolsBtn").addEventListener("click", () => {
+    const main = document.querySelector(".chart-main");
+    main.classList.toggle("hide-tools");
+    $("focusToolsBtn").textContent = main.classList.contains("hide-tools") ? "⚙ 설정 보이기" : "⚙ 설정 숨기기";
+  });
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea") return;
+    const chartTabOn = $("tab-chart")?.classList.contains("active");
+    if (e.key === "Escape" && isChartFocus()) { setChartFocus(false); return; }
+    if (!chartTabOn) return;
+    if ((e.key === "f" || e.key === "F" || e.key === "ㄹ") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      setChartFocus(!isChartFocus());
+    } else if (isChartFocus() && e.key === "ArrowLeft" && e.shiftKey) {
+      stepFocusAsset(-1);
+    } else if (isChartFocus() && e.key === "ArrowRight" && e.shiftKey) {
+      stepFocusAsset(1);
     }
-  };
+  });
 }
 
 function applyChartVisibility() {

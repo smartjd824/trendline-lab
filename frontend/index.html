@@ -278,6 +278,7 @@
                   <option value="log">로그 스케일</option>
                 </select>
                 <button id="applyChartParamsBtn" class="btn btn-secondary btn-sm">적용</button>
+                <button id="chartFocusBtn" class="btn btn-primary btn-sm" title="차트만 화면 가득 보기 (단축키 F · 닫기 Esc)">⛶ 차트 크게 보기</button>
               </div>
             </div>
 
@@ -296,6 +297,14 @@
           </div>
 
           <div class="chart-stage-wrap">
+            <div class="focus-bar">
+              <button id="focusPrevBtn" class="btn btn-secondary btn-sm" title="이전 종목 (Shift+←)">◀ 이전</button>
+              <span id="focusAssetLabel" class="focus-asset-label"></span>
+              <button id="focusNextBtn" class="btn btn-secondary btn-sm" title="다음 종목 (Shift+→)">다음 ▶</button>
+              <button id="focusToolsBtn" class="btn btn-secondary btn-sm" title="설정 막대 숨기기/보이기">⚙ 설정 숨기기</button>
+              <button id="focusFitBtn" class="btn btn-secondary btn-sm" title="전체 기간 맞추기">↔ 전체 기간</button>
+              <button id="focusExitBtn" class="btn btn-primary btn-sm" title="원래 화면으로 (Esc)">✕ 닫기</button>
+            </div>
             <div id="tvChartContainer" class="tv-chart-container"></div>
             <div id="trendlineInfoBar" class="trendline-info-bar"></div>
           </div>
