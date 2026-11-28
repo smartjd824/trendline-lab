@@ -261,8 +261,11 @@ def run_rules(df: pd.DataFrame, spec: dict) -> dict[str, Any]:
     pos = None   # dict(units=[...], entry, stop, risk, ei)
 
     def ev(i, kind, text, price):
-        events.append(dict(ts=int(ts[i]), bar_kst=d["time_kst"].iat[i], kind=kind, text=text,
-                           price=round(float(price), spec["decimals"])))
+        e = dict(ts=int(ts[i]), bar_kst=d["time_kst"].iat[i], kind=kind, text=text, price=round(float(price), spec["decimals"]))
+        if kind == "BUY" and np.isfinite(atr[i]):
+            # 눌림 매수 참고가: 기준가 − 0.25 ATR (2시간 안에 안 오면 시장가) — 5분봉 60일 시험에서 약간 유리
+            e["pullback"] = round(float(price) - 0.25 * float(atr[i]), spec["decimals"])
+        events.append(e)
 
     def close_unit(u, px, stop_hit, j):
         slip = 2 * SLIP + (STOP_SLIP if stop_hit else 0)
@@ -352,6 +355,7 @@ def run_rules(df: pd.DataFrame, spec: dict) -> dict[str, Any]:
     live_close = float(df["close"].iat[-1])
     if pending_buy is not None and pos is None:
         state = dict(status="매수 신호", note="다음 봉 시가 매수 예정", ref=round(c[pending_buy], spec["decimals"]),
+                     pullback=round(c[pending_buy] - 0.25 * atr[pending_buy], spec["decimals"]),
                      stop=round(c[pending_buy] - max(atr[pending_buy] * 1.5, tick * 5), spec["decimals"]))
     elif pos is not None:
         open_units = [u for u in pos["units"] if u["open"]]
@@ -427,6 +431,12 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
     adj60, applied = apply_rolls(raw60, rolls)
     df60 = indicators(adj60, 3600)
     res = run_rules(df60, spec)
+    # 1분봉·5분봉 수집 (나중에 진입 타점 연구용, 월물 보정 전 원래 가격, 압축 저장)
+    for iv, per, lim in (("1m", "7d", 250000), ("5m", "60d", 80000)):
+        try:
+            merge_store(store / "continuous" / f"{safe}_{iv}.csv.gz", yahoo_history(sym, per, iv), lim)
+        except Exception:
+            pass
     raw15 = yahoo_history(sym, "60d", "15m")
     adj15, _ = apply_rolls(raw15, rolls) if not raw15.empty else (raw15, [])
     df15 = indicators(adj15, 900) if not adj15.empty else pd.DataFrame()

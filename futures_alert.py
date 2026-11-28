@@ -127,6 +127,8 @@ def night_status(state: dict, now: datetime) -> dict:
 def fmt_event(s: dict, e: dict, positions: dict | None = None, econ: list | None = None) -> str:
     txt = (f"{KIND_ICON.get(e['kind'], e['kind'])} · {s['icon']} <b>{html.escape(s['name'])}</b> ({s['code']}/{s['micro']})\n"
            f"   {html.escape(e['text'])}\n   신호 봉 {e['bar_kst']} · 기준가 {e['price']:,}")
+    if e.get("pullback"):
+        txt += f"\n   💡 눌림 매수 참고가 {e['pullback']:,} (기준가 − 0.25 ATR) · 2시간 안에 안 오면 시장가로 매수"
     if e["kind"] in ("BUY", "BUY_NEAR"):
         txt += f"\n   손절 기준 1계약 위험: 마이크로 약 ${s['risk_micro']:,} · 표준 약 ${s['risk_std']:,}"
     if positions and s["code"] in positions:

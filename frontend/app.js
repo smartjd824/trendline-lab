@@ -2893,7 +2893,7 @@ async function renderFutDetail() {
     rows.push(`<div>진입 ${st.entry_kst} · <b>${Number(st.entry).toLocaleString()}</b> · 손절 <b class="neg">${Number(st.stop).toLocaleString()}</b></div>`);
     rows.push(`<div>지금 손익 <b class="${st.r_now >= 0 ? "pos" : "neg"}">${st.r_now >= 0 ? "+" : ""}${st.r_now}R</b> (마이크로 약 $${st.micro_now})</div>`);
   }
-  if (st.status === "매수 신호") rows.push(`<div>다음 봉 시가에 매수 · 기준가 ${st.ref} · 손절 ${st.stop}</div>`);
+  if (st.status === "매수 신호") rows.push(`<div>다음 봉 시가에 매수 · 기준가 ${st.ref} · 손절 ${st.stop}</div>` + (st.pullback ? `<div>💡 눌림 매수 참고가 <b>${st.pullback}</b> (기준가 − 0.25 ATR) · 2시간 안에 안 오면 시장가</div>` : ""));
   const s20 = st.s20;
   rows.push(`<div>20일선 기울기 <b class="${s20 >= 0 ? "pos" : "neg"}">${s20}</b> ${s20 >= 0 ? "(상승 중 — 0 아래로 꺾이면 " + (it.code === "CL" ? "전부" : "절반") + " 매도)" : "(하락 중 — 0 위로 바뀌고 조건이 맞으면 매수)"}</div>`);
   rows.push(`<div>200일선 대비 <b class="${st.dist200_pct >= 0 ? "pos" : "neg"}">${st.dist200_pct >= 0 ? "+" : ""}${st.dist200_pct}%</b> ${st.above200 ? "(위 — 매수 가능 구간)" : "(아래 — 매수 안 함 · 보유 중이면 나머지 매도)"} · RSI ${st.rsi}</div>`);
