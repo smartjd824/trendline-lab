@@ -6,3 +6,6 @@ docs/
 .DS_Store
 *.log
 선물_분봉/
+
+# 선물 액션 결과 (futures-data 브랜치로만 올림)
+futures_out/

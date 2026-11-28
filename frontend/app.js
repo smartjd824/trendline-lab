@@ -434,6 +434,7 @@ function populateSettingsForm(settings) {
 /* ==================== EVENTS ==================== */
 function bindEvents() {
   setupChartFocus();
+  setupFutures();
   setupDrawing();
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -453,6 +454,9 @@ function bindEvents() {
         await loadExitComparison();
       } else if (btn.dataset.tab === "scanner") {
         await loadScanner();
+      } else if (btn.dataset.tab === "futures") {
+        await loadFutures(false);
+        if (fut.chart) setTimeout(() => fut.chart.timeScale().fitContent(), 50);
       } else if (btn.dataset.tab === "chart") {
         if (!state.chartPayload) {
           await loadChart(state.selectedSymbol);
@@ -2656,3 +2660,177 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
 });
+
+// ==================== 선물 탭 (깃허브 액션이 매시간 futures-data 브랜치에 올린 자료) ====================
+const fut = { data: null, sel: "NQ", iv: "60m", charts: {}, chart: null, timer: null };
+
+function futDataBase() {
+  let owner = "smartjd824", repo = "trendline-lab";
+  const host = location.hostname;
+  if (host.endsWith(".github.io")) {
+    owner = host.split(".")[0];
+    const p = location.pathname.split("/").filter(Boolean);
+    if (p.length) repo = p[0];
+  }
+  return `https://raw.githubusercontent.com/${owner}/${repo}/futures-data/futures`;
+}
+
+async function futFetch(name) {
+  const res = await fetch(`${futDataBase()}/${name}?t=${Date.now()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${name} ${res.status}`);
+  return res.json();
+}
+
+async function loadFutures(force = false) {
+  try {
+    if (force || !fut.data) fut.data = await futFetch("latest.json");
+    if (force) fut.charts = {};
+    renderFutHeader();
+    renderFutCards();
+    await renderFutDetail();
+  } catch (err) {
+    console.error(err);
+    $("futUpdated").textContent = "선물 자료를 아직 불러올 수 없습니다 (첫 자동 실행 전이거나 네트워크 문제)";
+  }
+  futSetupTimer();
+}
+
+function futSetupTimer() {
+  clearInterval(fut.timer);
+  if ($("futAutoRefresh") && $("futAutoRefresh").checked) {
+    fut.timer = setInterval(() => {
+      if ($("tab-futures").classList.contains("active")) loadFutures(true);
+    }, 5 * 60 * 1000);
+  }
+}
+
+function renderFutHeader() {
+  const d = fut.data;
+  $("futUpdated").textContent = `자료 갱신 ${d.updated_kst} (한국 시간, 매시간 7분 전후)`;
+  const n = d.night || {};
+  $("futNightLabel").textContent = n.label || "-";
+  $("futNightLabel").className = "fut-night-label " + (n.mode === "quiet" ? "on" : "off");
+  const bot = d.bot_username;
+  const link = (cmd) => (bot ? `https://t.me/${bot}?start=${cmd}` : "#");
+  $("futNightTonight").href = link("night_tonight");
+  $("futNightOn").href = link("night_on");
+  $("futNightOff").href = link("night_off");
+  ["futNightTonight", "futNightOn", "futNightOff"].forEach((id) => {
+    $(id).classList.toggle("disabled", !bot);
+    $(id).title = bot ? "텔레그램이 열리면 시작(Start)을 누르세요" : "봇 정보를 아직 받지 못했습니다";
+  });
+  const r = d.rule || {};
+  $("futRules").innerHTML = `
+    <div>🟢 <b>매수</b>: ${escHtml(r.buy || "")}</div>
+    <div>⛔ <b>손절</b>: ${escHtml(r.stop || "")}</div>
+    <div>🟡 <b>매도</b>: ${escHtml(r.sell_half || "")}</div>
+    <div>🟡 <b>매도</b>: ${escHtml(r.sell_all || "")}</div>
+    <div class="muted">연구 근거: 1시간봉 약 2년 4개월 + 일봉 약 8년 검증, 비용(미끄러짐·수수료) 반영. 과거 성적이 미래를 보장하지 않습니다.</div>`;
+}
+
+function futStateText(it) {
+  const st = it.state || {};
+  if (st.status === "매수 신호") return `<span class="fut-badge buy">🟢 매수 신호</span>`;
+  if (st.status === "없음") return `<span class="fut-badge flat">관망</span>`;
+  return `<span class="fut-badge hold">💼 ${escHtml(st.status)}</span>`;
+}
+
+function renderFutCards() {
+  const items = fut.data.items || [];
+  $("futCards").innerHTML = items
+    .map((it) => {
+      const st = it.state || {};
+      const pnl = st.r_now != null ? `<div class="fut-pnl ${st.r_now >= 0 ? "pos" : "neg"}">${st.r_now >= 0 ? "+" : ""}${st.r_now}R</div>` : "";
+      return `
+      <div class="card fut-card ${it.code === fut.sel ? "active" : ""}" data-code="${it.code}">
+        <div class="fut-card-top"><span class="fut-name">${it.icon} ${escHtml(it.name)}</span><span class="muted">${it.code} · ${it.micro}</span></div>
+        <div class="fut-price">${Number(it.price).toLocaleString()} <span class="${it.day_chg_pct >= 0 ? "pos" : "neg"}">${it.day_chg_pct >= 0 ? "+" : ""}${it.day_chg_pct}%</span></div>
+        <div class="fut-card-bottom">${futStateText(it)}${pnl}</div>
+        <div class="muted">${it.live_partial ? "진행 중 봉 " : "봉 "}${it.time_kst} · 매도: ${escHtml(it.exit_rule)}</div>
+      </div>`;
+    })
+    .join("");
+  $("futCards").querySelectorAll(".fut-card").forEach((el) =>
+    el.addEventListener("click", () => {
+      fut.sel = el.dataset.code;
+      renderFutCards();
+      renderFutDetail();
+    })
+  );
+}
+
+async function renderFutDetail() {
+  const it = (fut.data.items || []).find((x) => x.code === fut.sel) || (fut.data.items || [])[0];
+  if (!it) return;
+  fut.sel = it.code;
+  $("futChartTitle").textContent = `${it.icon} ${it.name} (${it.symbol}) · ${fut.iv === "60m" ? "1시간봉" : "15분봉"}`;
+  if (!fut.charts[it.code]) fut.charts[it.code] = await futFetch(`chart_${it.code}.json`);
+  drawFutChart(fut.charts[it.code][fut.iv] || fut.charts[it.code]["60m"]);
+
+  const st = it.state || {};
+  const rows = [];
+  rows.push(`<div class="fut-state-main">${futStateText(it)}</div>`);
+  if (st.entry != null) {
+    rows.push(`<div>진입 ${st.entry_kst} · <b>${Number(st.entry).toLocaleString()}</b> · 손절 <b class="neg">${Number(st.stop).toLocaleString()}</b></div>`);
+    rows.push(`<div>지금 손익 <b class="${st.r_now >= 0 ? "pos" : "neg"}">${st.r_now >= 0 ? "+" : ""}${st.r_now}R</b> (마이크로 약 $${st.micro_now})</div>`);
+  }
+  if (st.status === "매수 신호") rows.push(`<div>다음 봉 시가에 매수 · 기준가 ${st.ref} · 손절 ${st.stop}</div>`);
+  const s20 = st.s20;
+  rows.push(`<div>20일선 기울기 <b class="${s20 >= 0 ? "pos" : "neg"}">${s20}</b> ${s20 >= 0 ? "(상승 중 — 0 아래로 꺾이면 " + (it.code === "CL" ? "전부" : "절반") + " 매도)" : "(하락 중 — 0 위로 바뀌고 조건이 맞으면 매수)"}</div>`);
+  rows.push(`<div>200일선 대비 <b class="${st.dist200_pct >= 0 ? "pos" : "neg"}">${st.dist200_pct >= 0 ? "+" : ""}${st.dist200_pct}%</b> ${st.above200 ? "(위 — 매수 가능 구간)" : "(아래 — 매수 안 함 · 보유 중이면 나머지 매도)"} · RSI ${st.rsi}</div>`);
+  rows.push(`<div class="muted">20일선 ${it.ma20} · 60일선 ${it.ma60} · 200일선 ${it.ma200} · 신호 판단 봉 ${st.signal_bar_kst}</div>`);
+  if ((it.rolls || []).length) rows.push(`<div class="muted">🔁 월물 교체 보정: ${it.rolls.map((r) => `${r.time_kst} ${r.spread > 0 ? "+" : ""}${r.spread}${r.method === "estimate" ? "(추정)" : ""}`).join(", ")}</div>`);
+  $("futStateBox").innerHTML = rows.join("");
+
+  const kindTxt = { BUY: "🟢 매수", HALF: "🟡 절반 매도", SELL_ALL: "🟡 전부 매도", SELL_REST: "🔴 나머지 매도", STOP: "⛔ 손절" };
+  $("futEvents").innerHTML = (it.recent_events || [])
+    .map((e) => `<tr><td>${e.bar_kst}</td><td>${kindTxt[e.kind] || e.kind}</td><td class="num">${Number(e.price).toLocaleString()}</td><td class="muted">${escHtml(e.text)}</td></tr>`)
+    .join("") || `<tr><td class="muted">최근 신호 없음</td></tr>`;
+
+  const b = it.backtest || {};
+  $("futBacktest").innerHTML = b.n
+    ? `<div class="fut-bt">${b.since}부터 <b>${b.n}회</b> · 승률 ${b.win}% · 1회 평균 <b class="${b.avg_r >= 0 ? "pos" : "neg"}">${b.avg_r >= 0 ? "+" : ""}${b.avg_r}R</b> · 마이크로 합계 <b class="${b.micro_total >= 0 ? "pos" : "neg"}">$${Number(b.micro_total).toLocaleString()}</b> · 최대 손실 구간 $${Number(b.micro_mdd).toLocaleString()}${it.code === "CL" ? "" : " (2계약 기준)"}</div>`
+    : `<div class="muted">거래 없음</div>`;
+  $("futTrades").innerHTML = (it.recent_trades || [])
+    .map((t) => `<tr><td>${t.entry_kst}</td><td>${t.exit_kst}</td><td class="num ${t.r >= 0 ? "pos" : "neg"}">${t.r >= 0 ? "+" : ""}${t.r}</td><td class="num ${t.micro >= 0 ? "pos" : "neg"}">${t.micro}</td></tr>`)
+    .join("");
+}
+
+function drawFutChart(cd) {
+  const el = $("futChart");
+  if (fut.chart) { try { fut.chart.remove(); } catch {} }
+  el.innerHTML = "";
+  fut.chart = LightweightCharts.createChart(el, {
+    layout: { background: { type: "solid", color: "#05070a" }, textColor: "#a0aec0", fontSize: 11.5 },
+    grid: { vertLines: { color: "rgba(38,49,68,0.45)", style: 2 }, horzLines: { color: "rgba(38,49,68,0.45)", style: 2 } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: "#222c3c" },
+    timeScale: { borderColor: "#222c3c", timeVisible: true, secondsVisible: false, rightOffset: 6 },
+    autoSize: true,
+  });
+  const cs = fut.chart.addCandlestickSeries({ upColor: "#26a69a", downColor: "#ef5350", borderUpColor: "#26a69a", borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350" });
+  cs.setData(cd.candles || []);
+  const line = (data, color, w = 2) => {
+    const s = fut.chart.addLineSeries({ color, lineWidth: w, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    s.setData(data || []);
+  };
+  line(cd.ma20, "#2962ff");
+  line(cd.ma60, "#ff9800", 1);
+  line(cd.ma200, "#00897b");
+  (cd.trendlines || []).forEach((t) => line(t.points, t.color, 2));
+  if ((cd.markers || []).length) cs.setMarkers(cd.markers);
+  fut.chart.timeScale().fitContent();
+}
+
+function setupFutures() {
+  if (!$("tab-futures")) return;
+  $("futReloadBtn").addEventListener("click", () => loadFutures(true));
+  $("futAutoRefresh").addEventListener("change", futSetupTimer);
+  $("futIntervalGroup").addEventListener("click", (e) => {
+    const b = e.target.closest(".seg-btn");
+    if (!b) return;
+    $("futIntervalGroup").querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+    fut.iv = b.dataset.iv;
+    renderFutDetail();
+  });
+}

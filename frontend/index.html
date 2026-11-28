@@ -24,6 +24,7 @@
       <button class="tab-btn" data-tab="chart">📈 차트 연구실</button>
       <button class="tab-btn" data-tab="research">🧪 전체 종목 · 테마</button>
       <button class="tab-btn" data-tab="scanner">🔔 신호 스캐너</button>
+      <button class="tab-btn" data-tab="futures">⚡ 선물</button>
     </nav>
 
     <div class="topbar-actions">
@@ -730,6 +731,70 @@
             </div>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ==================== 선물 (1시간봉 매수·매도 규칙) ==================== -->
+    <section id="tab-futures" class="tab-pane">
+      <div class="card fut-head-card">
+        <div class="card-title">
+          <span>⚡ 선물 1시간봉 매수·매도 (나스닥 100 · 금 · 크루드 오일)</span>
+          <span class="muted" id="futUpdated">불러오는 중...</span>
+        </div>
+        <div class="fut-head-row">
+          <div class="fut-night">
+            <div><b>야간 알림 제한</b> <span id="futNightLabel" class="fut-night-label">-</span></div>
+            <div class="muted">한국 시간 00~07시에는 알림을 보내지 않고 아침 7시에 모아서 보냅니다. 버튼을 누르면 텔레그램이 열리고, <b>시작(Start)</b>을 누르면 다음 정시 실행(최대 1시간 안)에 적용됩니다.</div>
+            <div class="fut-night-btns">
+              <a id="futNightTonight" class="btn btn-primary btn-sm" target="_blank" rel="noopener">🌙 오늘 밤만 해제</a>
+              <a id="futNightOn" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">🔔 계속 해제</a>
+              <a id="futNightOff" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">😴 다시 제한</a>
+            </div>
+          </div>
+          <div class="fut-refresh">
+            <label class="toggle-chip"><input type="checkbox" id="futAutoRefresh" checked /> 5분마다 자동 새로고침</label>
+            <button id="futReloadBtn" class="btn btn-secondary btn-sm">↻ 지금 새로고침</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="futCards" class="fut-cards"></div>
+
+      <div class="card">
+        <div class="card-title">
+          <span id="futChartTitle">차트</span>
+          <div class="seg-group" id="futIntervalGroup">
+            <button class="seg-btn active" data-iv="60m">1시간봉 (규칙 기준)</button>
+            <button class="seg-btn" data-iv="15m">15분봉 (참고)</button>
+          </div>
+        </div>
+        <div class="fut-legend muted">
+          <span><i style="background:#2962ff"></i>20일선</span><span><i style="background:#ff9800"></i>60일선</span><span><i style="background:#00897b"></i>200일선</span>
+          <span><i style="background:#2979ff"></i>장기 상단</span><span><i style="background:#00e676"></i>장기 하단</span><span><i style="background:#ffb74d"></i>단기 상단</span><span><i style="background:#ba68c8"></i>단기 하단</span>
+          <span>▲매수 ▼절반·나머지 매도 ■손절</span>
+        </div>
+        <div id="futChart" class="fut-chart"></div>
+      </div>
+
+      <div class="fut-bottom">
+        <div class="card">
+          <div class="card-title"><span>🧭 지금 상태와 다음 조건</span></div>
+          <div id="futStateBox"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🔔 최근 신호</span><span class="muted">신호 봉 시각 (한국)</span></div>
+          <div class="table-scroll compact-scroll"><table class="data-table"><tbody id="futEvents"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🧪 이 규칙의 과거 성적 (비용 반영)</span></div>
+          <div id="futBacktest"></div>
+          <div class="table-scroll compact-scroll"><table class="data-table"><thead><tr><th>매수</th><th>매도</th><th class="num">R</th><th class="num">마이크로 $</th></tr></thead><tbody id="futTrades"></tbody></table></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>📏 규칙</span></div>
+        <div id="futRules" class="fut-rules"></div>
       </div>
     </section>
   </main>

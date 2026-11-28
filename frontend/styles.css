@@ -1383,3 +1383,44 @@ body.chart-focus-mode { overflow: hidden; }
 .draw-color.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--blue); }
 .draw-magnet { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
 .draw-hint { color: var(--amber); margin-left: 4px; }
+
+/* ==================== 선물 탭 ==================== */
+.fut-head-row { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.fut-night { display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
+.fut-night-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.fut-night-btns .btn { text-decoration: none; }
+.fut-night-btns .btn.disabled { opacity: 0.45; pointer-events: none; }
+.fut-night-label { font-weight: 700; margin-left: 6px; }
+.fut-night-label.on { color: var(--amber); }
+.fut-night-label.off { color: var(--green); }
+.fut-refresh { display: flex; align-items: flex-start; gap: 8px; }
+.fut-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 12px 0; }
+.fut-card { cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.fut-card.active { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue) inset; }
+.fut-card-top { display: flex; justify-content: space-between; align-items: center; }
+.fut-name { font-weight: 700; font-size: 14px; }
+.fut-price { font-size: 20px; font-weight: 700; }
+.fut-price span { font-size: 13px; margin-left: 6px; }
+.fut-card-bottom { display: flex; justify-content: space-between; align-items: center; }
+.fut-pnl { font-weight: 700; }
+.fut-badge { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.fut-badge.buy { background: rgba(0, 230, 118, 0.16); color: #69f0ae; }
+.fut-badge.hold { background: rgba(41, 121, 255, 0.18); color: #82b1ff; }
+.fut-badge.flat { background: var(--surface-2); color: var(--muted); }
+.fut-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+.fut-legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+.fut-chart { width: 100%; height: 480px; border-radius: 8px; overflow: hidden; }
+.fut-bottom { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 12px; margin: 12px 0; }
+#futStateBox { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.fut-state-main { margin-bottom: 4px; }
+.fut-bt { font-size: 13px; margin-bottom: 8px; }
+.fut-rules { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+@media (max-width: 1000px) {
+  .fut-cards, .fut-bottom { grid-template-columns: 1fr; }
+  .fut-chart { height: 360px; }
+}
+
+/* 탭이 6개라 한 줄 유지 */
+.tab-btn { white-space: nowrap; padding: 6px 9px; font-size: 12.5px; }
+.tabs { gap: 2px; overflow-x: auto; max-width: 100%; scrollbar-width: none; flex-shrink: 1; min-width: 0; }
+.tabs::-webkit-scrollbar { display: none; }

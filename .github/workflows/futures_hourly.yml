@@ -1,0 +1,66 @@
+name: 선물 1시간봉 매수·매도 알림 (매시간)
+
+on:
+  schedule:
+    # 1시간봉이 끝난 뒤 (정각 혼잡을 피해 7분). 선물 시장이 열린 시간만:
+    # 일요일 22~23시(UTC) = 월요일 아침 개장, 월~금 하루 종일 (UTC)
+    - cron: "7 22,23 * * 0"
+    - cron: "7 * * * 1-5"
+  workflow_dispatch:
+    inputs:
+      summary:
+        description: "선물 현황 요약도 지금 보내기"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: futures
+  cancel-in-progress: false
+
+jobs:
+  futures:
+    name: 선물 신호 계산·알림
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 저장소 내려받기
+        uses: actions/checkout@v4
+
+      - name: 이전 상태·시세 보관분 가져오기 (futures-data 브랜치)
+        run: |
+          mkdir -p futures_out
+          if git fetch --depth=1 origin futures-data; then
+            git archive FETCH_HEAD | tar -x -C futures_out
+          fi
+          ls -la futures_out/futures 2>/dev/null || echo "처음 실행"
+
+      - name: uv 설치
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 파이썬 패키지 설치
+        run: uv sync
+
+      - name: 선물 신호 계산 + 텔레그램 알림
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ARGS="--out futures_out/futures"
+          if [ "${{ github.event.inputs.summary }}" = "true" ]; then ARGS="$ARGS --force-summary"; fi
+          uv run python futures_alert.py $ARGS
+
+      - name: 결과 올리기 (futures-data 브랜치, 기록 1개만 유지)
+        run: |
+          cd futures_out
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b futures-data
+          git add -A
+          git commit -q -m "선물 자료 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" futures-data
