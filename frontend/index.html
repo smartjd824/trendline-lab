@@ -332,8 +332,8 @@
                 <button class="draw-color" data-color="#ffffff" style="background:#ffffff" title="흰색"></button>
               </span>
               <label class="draw-magnet" title="클릭한 곳 가까운 봉의 고가·저가에 선 끝을 붙입니다"><input type="checkbox" id="drawMagnet" checked /> 🧲 고·저점에 붙이기</label>
-              <button class="draw-btn" id="drawUndoBtn" title="마지막 선 지우기 (Ctrl/Cmd+Z)">↶ 되돌리기</button>
-              <button class="draw-btn" id="drawClearBtn" title="이 종목에 그린 선 모두 지우기">🗑 모두 지우기</button>
+              <button class="draw-btn draw-undo" id="drawUndoBtn" title="마지막 선 지우기 (Ctrl/Cmd+Z)">↶ 되돌리기</button>
+              <button class="draw-btn draw-clear" id="drawClearBtn" title="이 종목에 그린 선 모두 지우기">🗑 모두 지우기</button>
               <span id="drawHint" class="draw-hint"></span>
             </div>
             <div id="tvChartContainer" class="tv-chart-container"></div>
@@ -784,7 +784,25 @@
         <div class="fut-legend muted">
           <span><i style="background:#2962ff"></i>20일선</span><span><i style="background:#ff9800"></i>60일선</span><span><i style="background:#00897b"></i>200일선</span>
           <span><i style="background:#2979ff"></i>장기 상단</span><span><i style="background:#00e676"></i>장기 하단</span><span><i style="background:#ffb74d"></i>단기 상단</span><span><i style="background:#ba68c8"></i>단기 하단</span>
+          <span><i style="background:#ff4081;height:4px"></i>최장기(1달) 상단 (점선)</span><span><i style="background:#f48fb1;height:4px"></i>최장기(1달) 하단 (점선)</span>
           <span>▲매수 ▼절반·나머지 매도 ■손절</span>
+        </div>
+        <div class="draw-bar" id="futDrawBar">
+          <span class="draw-label">✏️ 직접 긋기</span>
+          <button class="draw-btn" data-tool="seg">╱ 추세선</button>
+          <button class="draw-btn" data-tool="ray">↗ 연장 추세선</button>
+          <button class="draw-btn" data-tool="hline">― 수평선</button>
+          <button class="draw-btn" data-tool="erase">⌫ 지우개</button>
+          <span class="draw-colors">
+            <button class="draw-color active" data-color="#ffeb3b" style="background:#ffeb3b" title="노랑"></button>
+            <button class="draw-color" data-color="#ff4081" style="background:#ff4081" title="분홍"></button>
+            <button class="draw-color" data-color="#40c4ff" style="background:#40c4ff" title="하늘"></button>
+            <button class="draw-color" data-color="#ffffff" style="background:#ffffff" title="흰색"></button>
+          </span>
+          <label class="draw-magnet"><input type="checkbox" checked /> 🧲 고·저점에 붙이기</label>
+          <button class="draw-btn draw-undo" title="마지막 선 지우기 (Ctrl/Cmd+Z)">↶ 되돌리기</button>
+          <button class="draw-btn draw-clear">🗑 모두 지우기</button>
+          <span class="draw-hint"></span>
         </div>
         <div id="futChart" class="fut-chart"></div>
       </div>
@@ -803,6 +821,39 @@
           <div id="futBacktest"></div>
           <div class="table-scroll compact-scroll"><table class="data-table"><thead><tr><th>매수</th><th>매도</th><th class="num">R</th><th class="num">마이크로 $</th></tr></thead><tbody id="futTrades"></tbody></table></div>
         </div>
+      </div>
+
+      <div class="fut-bottom">
+        <div class="card">
+          <div class="card-title"><span>📒 실전 기록 (운영 시작 뒤 실제 신호대로 했다면)</span><span class="muted" id="futLiveSince"></span></div>
+          <div id="futLiveBox"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>📅 주요 경제지표 (미국 · 한국 시간)</span><span class="muted">발표 전후 급변동 주의</span></div>
+          <div id="futCalBox"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>🧮 계약 수 계산기</span><span class="muted">처음 손절(1.5 ATR) 기준</span></div>
+          <div class="fut-calc-inputs">
+            <label>계좌 금액 ($) <input id="futCalcCap" type="number" class="input-sm" value="20000" step="1000" /></label>
+            <label>1회 허용 손실 (%) <input id="futCalcRisk" type="number" class="num-sm" value="1" step="0.5" min="0.25" max="5" /></label>
+          </div>
+          <div id="futCalcBox"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>💼 내 선물 포지션</span><span class="muted">이 브라우저에 저장 · 텔레그램 알림에도 등록 가능</span></div>
+        <div class="fut-pos-form">
+          <select id="futPosCode" class="select-sm"><option value="NQ">📈 나스닥 (NQ)</option><option value="GC">🥇 금 (GC)</option><option value="CL">🛢️ 크루드 오일 (CL)</option></select>
+          <input id="futPosEntry" type="number" class="input-sm" placeholder="진입가" step="any" />
+          <input id="futPosQty" type="number" class="num-sm" value="1" min="1" />
+          <select id="futPosSize" class="select-sm"><option value="micro">마이크로</option><option value="std">표준</option></select>
+          <input id="futPosStop" type="number" class="input-sm" placeholder="내 손절가 (선택)" step="any" />
+          <button id="futPosAdd" class="btn btn-primary btn-sm">등록</button>
+        </div>
+        <div id="futPosList"></div>
+        <div class="muted">텔레그램 알림에도 넣으려면 각 포지션의 <b>📨 알림에 등록</b>을 누르고 텔레그램에서 시작(Start)을 누르세요 (다음 정시 실행 때 적용). 봇에 <code>/현황</code>을 보내면 언제든 상태를 받을 수 있고, <code>/도움</code>으로 명령 목록을 볼 수 있습니다.</div>
       </div>
 
       <div class="card">

@@ -25,6 +25,16 @@ from pathlib import Path
 import httpx
 
 from futures_engine.engine import FUTURES, analyze_symbol
+from futures_engine.extras import (decrypt, encrypt, fetch_calendar, fmt_event_time, parse_position_cmd,
+                                   position_line, upcoming)
+
+LIVE_SINCE_DEFAULT = int(datetime(2026, 11, 28, 13, 47, tzinfo=timezone(timedelta(hours=9))).timestamp())  # 실제 운영 시작
+HELP = ("🤖 <b>선물 봇 명령</b>\n"
+        "/현황 — 지금 3종목 상태\n"
+        "/보유 NQ 26800.25 2 마이크로 26500 — 내 포지션 등록 (종목 가격 계약수 [마이크로|표준] [내 손절])\n"
+        "/정리 NQ — 내 포지션 등록 해제\n"
+        "/야간해제 · /오늘밤 · /야간제한 — 00~07시 알림 설정\n"
+        "※ 명령은 매시간 7분 전후 실행 때 처리되어 답장까지 최대 1시간 걸립니다.")
 
 KST = timezone(timedelta(hours=9))
 QUIET_START, QUIET_END = 0, 7
@@ -65,8 +75,29 @@ def read_commands(token: str, chat: str, state: dict, now: datetime) -> list[str
         msg = up.get("message") or {}
         if str((msg.get("chat") or {}).get("id")) != str(chat).strip():
             continue   # 내 대화방에서 온 명령만
-        text = (msg.get("text") or "").strip().lower()
+        text = (msg.get("text") or "").strip()
         cmd = text.replace("/start", "").replace("/", "").strip()
+        cmd = cmd.lower() if cmd.isascii() else cmd
+        if cmd in ("현황", "status", "state"):
+            state["_want_status"] = True
+            continue
+        if cmd in ("도움", "help", "명령"):
+            done.append(HELP)
+            continue
+        pc = parse_position_cmd(cmd)
+        if pc:
+            code, pos = pc
+            code = code.upper()
+            positions = decrypt(state.get("positions_enc", ""), token) if state.get("positions_enc") else {}
+            if pos is None:
+                positions.pop(code, None)
+                done.append(f"🗑 {code} 내 포지션 등록을 지웠습니다.")
+            else:
+                positions[code] = pos
+                done.append(f"💼 {code} 내 포지션 등록: {pos['entry']:,} · {pos['qty']}계약({'마이크로' if pos['size'] == 'micro' else '표준'})"
+                            + (f" · 내 손절 {pos['stop']:,}" if pos.get("stop") else "") + "\n신호가 나오면 내 손익과 함께 알려 드립니다.")
+            state["positions_enc"] = encrypt(positions, token)
+            continue
         if cmd in ("night_on", "야간해제"):
             state["night"] = {"mode": "always"}
             done.append("🌙 야간 알림 제한을 <b>해제</b>했습니다. 이제 밤에도 선물 신호가 바로 옵니다.")
@@ -93,9 +124,16 @@ def night_status(state: dict, now: datetime) -> dict:
     return {"mode": n.get("mode", "quiet"), "label": label, "quiet_hour": quiet_hour, "allowed": allowed}
 
 
-def fmt_event(s: dict, e: dict) -> str:
-    return (f"{KIND_ICON.get(e['kind'], e['kind'])} · {s['icon']} <b>{html.escape(s['name'])}</b> ({s['code']}/{s['micro']})\n"
-            f"   {html.escape(e['text'])}\n   신호 봉 {e['bar_kst']} · 기준가 {e['price']:,}")
+def fmt_event(s: dict, e: dict, positions: dict | None = None, econ: list | None = None) -> str:
+    txt = (f"{KIND_ICON.get(e['kind'], e['kind'])} · {s['icon']} <b>{html.escape(s['name'])}</b> ({s['code']}/{s['micro']})\n"
+           f"   {html.escape(e['text'])}\n   신호 봉 {e['bar_kst']} · 기준가 {e['price']:,}")
+    if e["kind"] in ("BUY", "BUY_NEAR"):
+        txt += f"\n   손절 기준 1계약 위험: 마이크로 약 ${s['risk_micro']:,} · 표준 약 ${s['risk_std']:,}"
+    if positions and s["code"] in positions:
+        txt += "\n   " + position_line(s, positions[s["code"]])
+    if econ:
+        txt += "\n   ⚠️ 곧 발표: " + ", ".join(f"{x['ko']} {fmt_event_time(x['ts'])}" for x in econ[:3]) + " — 발표 전후 급변동 주의"
+    return txt
 
 
 def fmt_state(s: dict) -> str:
@@ -125,6 +163,11 @@ def main() -> int:
     now = datetime.now(KST)
 
     replies = read_commands(token, chat, state, now)
+    positions = decrypt(state["positions_enc"], token) if (state.get("positions_enc") and token) else {}
+    live_since = int(state.setdefault("live_since", LIVE_SINCE_DEFAULT))
+    cal = fetch_calendar(state.setdefault("calendar", {}))
+    now_ts = int(now.timestamp())
+    econ_soon = upcoming(cal, now_ts, 3)
     night = night_status(state, now)
 
     summaries, new_events, errors = [], [], []
@@ -155,19 +198,34 @@ def main() -> int:
     for r in replies:
         msgs.append(r)
     if new_events:
-        lines = [fmt_event(s, e) for s, e in new_events]
+        lines = [fmt_event(s, e, positions, econ_soon) for s, e in new_events]
         if night["allowed"]:
             msgs.append("⚡ <b>선물 알림 (1시간봉)</b>\n\n" + "\n\n".join(lines))
         else:
             pending.extend(lines)
+    # 내 포지션 손절선 도달 (한 번만)
+    pos_changed = False
+    for s in summaries:
+        p_ = positions.get(s["code"])
+        if p_ and p_.get("stop") and not p_.get("stop_alerted") and s["price"] <= p_["stop"]:
+            line = f"⛔ <b>내 손절선 도달</b> · {s['icon']} {html.escape(s['name'])} 현재 {s['price']:,} ≤ 내 손절 {p_['stop']:,}\n   " + position_line(s, p_)
+            (msgs if night["allowed"] else pending).append(line)
+            p_["stop_alerted"] = True
+            pos_changed = True
+    if pos_changed:
+        state["positions_enc"] = encrypt(positions, token)
+    if state.pop("_want_status", False):
+        args.force_summary = True
     # 매일 현황 요약은 보내지 않음 (신호·임박 때만 알림). 수동 실행에서 요청할 때만 보냄
     morning_due = False
     if pending and night["allowed"]:
         msgs.append("🌙 <b>밤사이 선물 신호</b> (00~07시)\n\n" + "\n\n".join(pending))
         state["pending"] = []
     if (morning_due or args.force_summary) and summaries:
-        body = "\n".join(fmt_state(s) for s in summaries)
-        msgs.append(f"☀️ <b>선물 현황</b> {now:%m-%d %H:%M}\n{body}\n\n야간 알림 제한: {night['label']}\n🔗 {SITE_URL}")
+        body = "\n".join(fmt_state(s) + (("\n   " + position_line(s, positions[s["code"]])) if s["code"] in positions else "") for s in summaries)
+        nxt = upcoming(cal, now_ts, 72)
+        cal_txt = ("\n\n📅 3일 안 주요 지표: " + ", ".join(f"{x['ko']} {fmt_event_time(x['ts'])}" for x in nxt[:5])) if nxt else ""
+        msgs.append(f"☀️ <b>선물 현황</b> {now:%m-%d %H:%M}\n{body}{cal_txt}\n\n야간 알림 제한: {night['label']}\n🔗 {SITE_URL}")
         state["last_morning"] = now.strftime("%Y-%m-%d")
 
     sent_ok = all(send(token, chat, m, args.dry_run) for m in msgs) if msgs else True
@@ -179,7 +237,24 @@ def main() -> int:
     if token:
         me = tg("getMe", token)
         bot_user = (me.get("result") or {}).get("username", "") if me.get("ok") else ""
-    latest = dict(updated_kst=now.strftime("%Y-%m-%d %H:%M"), items=summaries, errors=errors,
+    live_all = []
+    for s in summaries:
+        trades = [t for t in s.pop("_trades_all", []) if t["entry_ts"] >= live_since]
+        live_all += trades
+        u = [t["micro"] for t in trades]
+        s["live"] = dict(n=len(trades), win=round(sum(x > 0 for x in u) / len(u) * 100) if u else None,
+                         avg_r=round(sum(t["r"] for t in trades) / len(trades), 2) if trades else None,
+                         micro_total=round(sum(u), 1),
+                         trades=[dict(entry_kst=datetime.fromtimestamp(t["entry_ts"], KST).strftime("%m-%d %H:%M"),
+                                      exit_kst=datetime.fromtimestamp(t["exit_ts"], KST).strftime("%m-%d %H:%M"),
+                                      r=round(t["r"], 2), micro=round(t["micro"], 1)) for t in trades[-20:][::-1]],
+                         events=[e for e in s["recent_events"] if e["ts"] >= live_since])
+    u_all = [t["micro"] for t in live_all]
+    live_total = dict(since=datetime.fromtimestamp(live_since, KST).strftime("%Y-%m-%d %H:%M"), n=len(live_all),
+                      micro_total=round(sum(u_all), 1), win=round(sum(x > 0 for x in u_all) / len(u_all) * 100) if u_all else None)
+    calendar_week = [dict(time_kst=fmt_event_time(x["ts"]), ts=x["ts"], ko=x["ko"], title=x["title"], impact=x["impact"])
+                     for x in cal if now_ts - 6 * 3600 <= x["ts"] <= now_ts + 8 * 86400]
+    latest = dict(updated_kst=now.strftime("%Y-%m-%d %H:%M"), items=summaries, errors=errors, live=live_total, calendar=calendar_week,
                   night=night, bot_username=bot_user, quiet_hours=f"{QUIET_START:02d}:00~{QUIET_END:02d}:00",
                   rule=dict(buy="20일선 기울기 상승 전환 + 200일선 위·상승 + RSI ≥ 50 (1시간봉 완성 봉 기준, 다음 봉 시가)",
                             stop="처음 손절 1.5 × ATR",

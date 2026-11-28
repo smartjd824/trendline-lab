@@ -381,7 +381,7 @@ def bt_summary(trades: list[dict]) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------ 차트 자료
-def chart_payload(df: pd.DataFrame, events: list[dict], bars: int, dec: int) -> dict[str, Any]:
+def chart_payload(df: pd.DataFrame, events: list[dict], bars: int, dec: int, month_bars: int = 480) -> dict[str, Any]:
     v = df.iloc[-bars:].reset_index(drop=True)
     t = (v["ts_utc"] + KST_OFFSET).astype(int).tolist()
     rnd = lambda x: None if not np.isfinite(x) else round(float(x), dec + 1)  # noqa: E731
@@ -394,8 +394,9 @@ def chart_payload(df: pd.DataFrame, events: list[dict], bars: int, dec: int) -> 
     full_h, full_l = df["high"].to_numpy(float), df["low"].to_numpy(float)
     n = len(df)
     lines = []
-    for label, w in (("단기", 20), ("장기", 150)):
-        for kind, vals, color in (("upper", full_h, "#ff9800" if w == 20 else "#2979ff"), ("lower", full_l, "#ba68c8" if w == 20 else "#00e676")):
+    colors = {20: ("#ffb74d", "#ba68c8"), 150: ("#2979ff", "#00e676"), month_bars: ("#ff4081", "#f48fb1")}
+    for label, w in (("단기", 20), ("장기", 150), ("최장기(1달)", month_bars)):
+        for kind, vals, color in (("upper", full_h, colors[w][0]), ("lower", full_l, colors[w][1])):
             r = fit_line(vals, n, w, kind)
             if not r:
                 continue
@@ -403,7 +404,7 @@ def chart_payload(df: pd.DataFrame, events: list[dict], bars: int, dec: int) -> 
             if n - p1 > bars:
                 continue
             ts_all = (df["ts_utc"] + KST_OFFSET).astype(int).to_numpy()
-            lines.append(dict(label=f"{label} {'상단' if kind == 'upper' else '하단'}", color=color,
+            lines.append(dict(label=f"{label} {'상단' if kind == 'upper' else '하단'}", color=color, width=3 if w == month_bars else 2, dashed=(w == month_bars),
                               points=[dict(time=int(ts_all[p1]), value=rnd(vals[p1])),
                                       dict(time=int(ts_all[-1]), value=rnd(vals[p1] + slope * (n - 1 - p1)))]))
     out["trendlines"] = lines
@@ -430,6 +431,12 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
     adj15, _ = apply_rolls(raw15, rolls) if not raw15.empty else (raw15, [])
     df15 = indicators(adj15, 900) if not adj15.empty else pd.DataFrame()
 
+    month_lines = {}
+    n60 = len(df60)
+    for kind, col in (("upper", "high"), ("lower", "low")):
+        r = fit_line(df60[col].to_numpy(float), n60, 480, kind)
+        if r:
+            month_lines[kind] = round(r[3], spec["decimals"])
     last = df60.iloc[-1]
     sess = df60[df60["session"] == last["session"]]
     day_open = float(sess["open"].iat[0]) if len(sess) else float(df60["close"].iat[-2])
@@ -442,6 +449,12 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
         ma20=round(float(last["ma20"]), spec["decimals"]), ma60=round(float(last["ma60"]), spec["decimals"]),
         ma200=round(float(last["ma200"]), spec["decimals"]),
         state=res["state"], backtest=bt_summary(res["trades"]),
+        month_lines=month_lines,
+        atr=round(float(last["atr"]), spec["decimals"] + 1),
+        tick=spec["tick"], tick_value=spec["tick_value"], micro_tick_value=spec["micro_tick_value"],
+        comm_std=spec["comm_std"], comm_micro=spec["comm_micro"], exit_mode=spec["exit_mode"],
+        risk_micro=round(max(float(last["atr"]) * 1.5, spec["tick"] * 5) / spec["tick"] * spec["micro_tick_value"] + 2 * spec["micro_tick_value"] + spec["comm_micro"], 1),
+        risk_std=round(max(float(last["atr"]) * 1.5, spec["tick"] * 5) / spec["tick"] * spec["tick_value"] + 2 * spec["tick_value"] + spec["comm_std"], 1),
         recent_events=res["events"][-12:][::-1],
         recent_trades=[dict(entry_kst=pd.to_datetime(t["entry_ts"] + KST_OFFSET, unit="s").strftime("%m-%d %H:%M"),
                             exit_kst=pd.to_datetime(t["exit_ts"] + KST_OFFSET, unit="s").strftime("%m-%d %H:%M"),
@@ -449,7 +462,8 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
         rolls=[dict(time_kst=pd.to_datetime(e["ts_utc"] + KST_OFFSET, unit="s").strftime("%Y-%m-%d %H:%M"),
                     spread=round(e["spread"], spec["decimals"]), method=e["method"]) for e in applied][-6:],
     )
-    charts = {"60m": chart_payload(df60, res["events"], 1100, spec["decimals"])}   # 약 7주
+    charts = {"60m": chart_payload(df60, res["events"], 1100, spec["decimals"], month_bars=480)}   # 약 7주, 최장기선=1달(약 480봉)
     if not df15.empty:
-        charts["15m"] = chart_payload(df15, [], 2400, spec["decimals"])   # 약 1달
+        charts["15m"] = chart_payload(df15, [], 2400, spec["decimals"], month_bars=1900)   # 약 1달
+    summary["_trades_all"] = res["trades"]
     return summary, charts, rolls, res["events"]

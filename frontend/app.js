@@ -456,8 +456,10 @@ function bindEvents() {
         await loadScanner();
       } else if (btn.dataset.tab === "futures") {
         await loadFutures(false);
+        reattachDrawings("futures");
         if (fut.chart) setTimeout(() => fut.chart.timeScale().fitContent(), 50);
       } else if (btn.dataset.tab === "chart") {
+        reattachDrawings("stock");
         if (!state.chartPayload) {
           await loadChart(state.selectedSymbol);
         } else if (tvChart) {
@@ -934,6 +936,12 @@ const draw = {
   candles: [],
   idx: new Map(),
   series: null,
+  chart: null,       // 지금 선을 긋는 차트 (주식 차트 또는 선물 차트)
+  bar: null,         // 그 차트의 도구 막대
+  container: null,
+  isLog: false,
+  hidden: [],        // 지금 차트 범위 밖이라 안 보이는 선 (저장은 유지)
+  reg: new WeakMap(),
 };
 
 function loadAllDrawings() {
@@ -942,12 +950,12 @@ function loadAllDrawings() {
 function saveDrawings() {
   if (!draw.symbol) return;
   const all = loadAllDrawings();
-  const list = draw.items.map(({ type, a, b, color }) => ({ type, a, b, color }));
+  const list = [...draw.hidden, ...draw.items].map(({ type, a, b, color }) => ({ type, a, b, color }));
   if (list.length) all[draw.symbol] = list; else delete all[draw.symbol];
   localStorage.setItem(DRAW_KEY, JSON.stringify(all));
 }
 
-function drawIsLog() { return state.scaleMode === "log"; }
+function drawIsLog() { return draw.isLog; }
 
 // 두 점을 지나는 직선의 i번째 봉 위치 값 (로그 스케일이면 로그 기준 직선)
 function lineValueAt(a, b, i) {
@@ -972,7 +980,7 @@ function linePoints(type, a, b) {
 }
 
 function makeLineSeries(color, dashed) {
-  return tvChart.addLineSeries({
+  return draw.chart.addLineSeries({
     color, lineWidth: 2, lineStyle: dashed ? 2 : 0,
     lastValueVisible: false, priceLineVisible: false,
     crosshairMarkerVisible: false, autoscaleInfoProvider: () => null,
@@ -998,7 +1006,7 @@ function removeDrawObj(it) {
   if (!it._obj) return;
   try {
     if (it.type === "hline") draw.series.removePriceLine(it._obj);
-    else tvChart.removeSeries(it._obj);
+    else draw.chart.removeSeries(it._obj);
   } catch (err) {
     // 지우기에 실패하면 저장된 선 기준으로 차트를 새로 그려 확실히 지웁니다
     console.warn("선 지우기 실패 → 차트 다시 그림", err);
@@ -1010,23 +1018,48 @@ function removeDrawObj(it) {
 function redrawIfNeeded() {
   if (!draw.needRedraw) return;
   draw.needRedraw = false;
-  if (state.chartPayload) renderTradingViewChart(state.chartPayload);
+  if (draw.redraw) draw.redraw();
 }
 
-function attachDrawings(symbol, candles, candleSeries) {
+function attachDrawings(symbol, candles, candleSeries, opts = {}) {
+  const chart = opts.chart || tvChart;
+  if (draw.temp && draw.chart) { try { draw.chart.removeSeries(draw.temp); } catch {} }
   draw.symbol = symbol;
   draw.candles = candles;
   draw.series = candleSeries;
+  draw.chart = chart;
+  draw.bar = opts.bar || $("drawBar");
+  draw.container = opts.container || $("tvChartContainer");
+  draw.isLog = opts.log != null ? opts.log : state.scaleMode === "log";
+  draw.redraw = opts.redraw || (() => state.chartPayload && renderTradingViewChart(state.chartPayload));
   draw.idx = new Map(candles.map((c, i) => [c.time, i]));
   draw.first = null;
   draw.temp = null;
-  draw.items = (loadAllDrawings()[symbol] || []).filter((it) => {
-    const ok = renderDrawItem(it);
-    return ok;
-  });
-  tvChart.subscribeClick(onDrawClick);
-  tvChart.subscribeCrosshairMove(onDrawMove);
+  const ctx = [symbol, candles, candleSeries, opts];
+  if (opts.kind === "futures") draw.ctxFut = ctx; else draw.ctxStock = ctx;
+  const known = draw.reg.get(chart);
+  if (known && known.symbol === symbol) {
+    // 이미 이 차트에 그려 둔 선이 있으면 그대로 사용
+    draw.items = known.items;
+    draw.hidden = known.hidden;
+  } else {
+    draw.hidden = [];
+    draw.items = (loadAllDrawings()[symbol] || []).filter((it) => {
+      const ok = renderDrawItem(it);
+      if (!ok) draw.hidden.push(it);
+      return ok;
+    });
+    draw.reg.set(chart, { symbol, items: draw.items, hidden: draw.hidden });
+    chart.subscribeClick((p) => { if (draw.chart === chart) onDrawClick(p); });
+    chart.subscribeCrosshairMove((p) => { if (draw.chart === chart) onDrawMove(p); });
+  }
   setDrawTool(draw.tool === "erase" ? "erase" : null);
+}
+
+// 탭을 오갈 때 선 긋기 대상을 보이는 차트로 바꿈
+function reattachDrawings(kind) {
+  const ctx = kind === "futures" ? draw.ctxFut : draw.ctxStock;
+  if (ctx) attachDrawings(...ctx);
 }
 
 // 클릭 위치 → {t, p} (자석: 가까운 봉의 고가/저가에 붙이기)
@@ -1036,7 +1069,8 @@ function pointFromParam(param) {
   const c = draw.candles[i];
   let p = draw.series.coordinateToPrice(param.point.y);
   if (p == null) return null;
-  if ($("drawMagnet").checked && draw.tool !== "erase") {
+  const mag = draw.bar && draw.bar.querySelector(".draw-magnet input");
+  if (mag && mag.checked && draw.tool !== "erase") {
     const yH = draw.series.priceToCoordinate(c.high), yL = draw.series.priceToCoordinate(c.low);
     const dH = Math.abs(param.point.y - yH), dL = Math.abs(param.point.y - yL);
     if (Math.min(dH, dL) <= 14) p = dH <= dL ? c.high : c.low;
@@ -1044,17 +1078,20 @@ function pointFromParam(param) {
   return { t: c.time, p: Number(p.toPrecision(8)) };
 }
 
-function setDrawHint(txt) { $("drawHint").textContent = txt || ""; }
+function setDrawHint(txt) {
+  const h = draw.bar && draw.bar.querySelector(".draw-hint");
+  if (h) h.textContent = txt || "";
+}
 
 function setDrawTool(tool) {
   draw.tool = tool;
   draw.first = null;
   drawMoveKey = "";
   cancelAnimationFrame(drawMoveRaf);
-  if (draw.temp) { try { tvChart.removeSeries(draw.temp); } catch {} draw.temp = null; }
-  document.querySelectorAll("#drawBar .draw-btn[data-tool]").forEach((b) =>
-    b.classList.toggle("active", b.dataset.tool === tool));
-  const cont = $("tvChartContainer");
+  if (draw.temp) { try { draw.chart.removeSeries(draw.temp); } catch {} draw.temp = null; }
+  document.querySelectorAll(".draw-bar .draw-btn[data-tool]").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tool === tool && b.closest(".draw-bar") === draw.bar));
+  const cont = draw.container;
   if (cont) cont.style.cursor = tool ? (tool === "erase" ? "not-allowed" : "crosshair") : "";
   const hints = {
     seg: "첫 번째 점을 클릭하세요 (Esc 취소)",
@@ -1075,7 +1112,7 @@ function distToSeg(px, py, x1, y1, x2, y2) {
 
 function eraseAt(param) {
   if (!param || !param.point) return;
-  const ts = tvChart.timeScale();
+  const ts = draw.chart.timeScale();
   let best = -1, bestD = 10;
   draw.items.forEach((it, k) => {
     let d = Infinity;
@@ -1163,30 +1200,38 @@ function undoDrawing() {
   redrawIfNeeded();
 }
 
-function setupDrawing() {
-  $("drawBar").addEventListener("click", (e) => {
-    const btn = e.target.closest(".draw-btn[data-tool]");
-    if (btn) { setDrawTool(draw.tool === btn.dataset.tool ? null : btn.dataset.tool); return; }
-    const col = e.target.closest(".draw-color");
-    if (col) {
-      draw.color = col.dataset.color;
-      $("drawColors").querySelectorAll(".draw-color").forEach((b) => b.classList.toggle("active", b === col));
-    }
-  });
-  $("drawUndoBtn").addEventListener("click", undoDrawing);
-  $("drawClearBtn").addEventListener("click", () => {
+function clearAllDrawings() {
     if (!draw.items.length) return;
     if (!confirm(`이 종목에 그린 선 ${draw.items.length}개를 모두 지울까요?`)) return;
     draw.items.forEach(removeDrawObj);
-    draw.items = [];
+    draw.items.length = 0;
+    draw.hidden.length = 0;
     saveDrawings();
     setDrawTool(null);
     redrawIfNeeded();
+}
+
+function setupDrawing() {
+  document.querySelectorAll(".draw-bar").forEach((bar) => {
+    bar.addEventListener("click", (e) => {
+      // 이 막대의 차트로 대상 맞추기
+      if (bar.id === "futDrawBar" && draw.ctxFut && draw.bar !== bar) reattachDrawings("futures");
+      if (bar.id === "drawBar" && draw.ctxStock && draw.bar !== bar) reattachDrawings("stock");
+      const btn = e.target.closest(".draw-btn[data-tool]");
+      if (btn) { setDrawTool(draw.tool === btn.dataset.tool ? null : btn.dataset.tool); return; }
+      if (e.target.closest(".draw-undo")) { undoDrawing(); return; }
+      if (e.target.closest(".draw-clear")) { clearAllDrawings(); return; }
+      const col = e.target.closest(".draw-color");
+      if (col) {
+        draw.color = col.dataset.color;
+        document.querySelectorAll(".draw-color").forEach((b) => b.classList.toggle("active", b.dataset.color === draw.color));
+      }
+    });
   });
   document.addEventListener("keydown", (e) => {
     const tag = (e.target.tagName || "").toLowerCase();
     if (tag === "input" || tag === "select" || tag === "textarea") return;
-    if (!$("tab-chart")?.classList.contains("active")) return;
+    if (!$("tab-chart")?.classList.contains("active") && !$("tab-futures")?.classList.contains("active")) return;
     if (e.key === "Escape" && draw.tool) { e.stopImmediatePropagation(); setDrawTool(null); return; }
     if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undoDrawing(); }
   }, true);
@@ -2687,6 +2732,7 @@ async function loadFutures(force = false) {
     if (force) fut.charts = {};
     renderFutHeader();
     renderFutCards();
+    renderFutExtras();
     await renderFutDetail();
   } catch (err) {
     console.error(err);
@@ -2759,6 +2805,78 @@ function renderFutCards() {
   );
 }
 
+// ---- 실전 기록 · 경제지표 · 계산기 · 내 포지션 ----
+function renderFutExtras() {
+  const d = fut.data;
+  const lv = d.live || {};
+  $("futLiveSince").textContent = lv.since ? `${lv.since}부터` : "";
+  const rows = (d.items || []).map((it) => {
+    const l = it.live || {};
+    return `<tr><td>${it.icon} ${escHtml(it.name)}</td><td class="num">${l.n || 0}회</td><td class="num">${l.win != null ? l.win + "%" : "-"}</td><td class="num ${l.avg_r >= 0 ? "pos" : "neg"}">${l.avg_r != null ? (l.avg_r >= 0 ? "+" : "") + l.avg_r + "R" : "-"}</td><td class="num ${l.micro_total >= 0 ? "pos" : "neg"}">$${Number(l.micro_total || 0).toLocaleString()}</td><td>${escHtml(it.state.status === "없음" ? "관망" : it.state.status)}</td></tr>`;
+  }).join("");
+  $("futLiveBox").innerHTML = `
+    <div class="fut-bt">끝난 거래 <b>${lv.n || 0}회</b> · 마이크로 합계 <b class="${lv.micro_total >= 0 ? "pos" : "neg"}">$${Number(lv.micro_total || 0).toLocaleString()}</b>${lv.win != null ? ` · 승률 ${lv.win}%` : ""}</div>
+    <table class="data-table"><thead><tr><th>종목</th><th class="num">거래</th><th class="num">승률</th><th class="num">평균</th><th class="num">마이크로 $</th><th>지금</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="muted">과거 성적이 아니라 운영을 시작한 뒤 실제로 나온 신호만 셉니다. 금·나스닥은 2계약(반반) 기준.</div>`;
+
+  const cal = d.calendar || [];
+  const nowS = Date.now() / 1000;
+  $("futCalBox").innerHTML = cal.length
+    ? `<table class="data-table"><tbody>${cal.map((c) => `<tr class="${c.ts < nowS ? "muted" : ""}"><td>${c.time_kst}</td><td>${escHtml(c.ko)}</td><td>${c.impact === "High" ? "🔴 중요" : "🟠"}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="muted">이번 주 남은 주요 지표가 없습니다. 새 주 일정은 일요일에 올라옵니다.</div>`;
+  renderFutCalc();
+  renderFutPositions();
+}
+
+function renderFutCalc() {
+  if (!fut.data) return;
+  const cap = Number($("futCalcCap").value) || 0;
+  const pct = Number($("futCalcRisk").value) || 1;
+  const budget = cap * pct / 100;
+  $("futCalcBox").innerHTML = `<div class="muted">1회 허용 손실 $${budget.toLocaleString()}</div>` + (fut.data.items || []).map((it) => {
+    const m = Math.floor(budget / it.risk_micro);
+    const sd = Math.floor(budget / it.risk_std);
+    const need = it.exit_mode === "half" ? " (반반 매도는 2계약 이상 필요)" : "";
+    return `<div class="fut-calc-row">${it.icon} <b>${escHtml(it.name)}</b> · 1계약 위험 마이크로 $${it.risk_micro} / 표준 $${it.risk_std}<br>→ <b class="${m >= 1 ? "pos" : "neg"}">마이크로 ${m}계약</b>${sd >= 1 ? ` · 표준 ${sd}계약` : ""}${m >= 1 && m < 2 ? need : ""}${m < 1 ? " — 금액이 부족해 손절 위험이 허용 손실보다 큽니다" : ""}</div>`;
+  }).join("");
+}
+
+const FUT_POS_KEY = "fut_positions_v1";
+function futLoadPos() { try { return JSON.parse(localStorage.getItem(FUT_POS_KEY) || "{}"); } catch { return {}; } }
+function futSavePos(p) { localStorage.setItem(FUT_POS_KEY, JSON.stringify(p)); }
+
+function futTgLink(cmd) {
+  const bot = fut.data && fut.data.bot_username;
+  return bot ? `https://t.me/${bot}?start=${cmd}` : "#";
+}
+
+function renderFutPositions() {
+  const pos = futLoadPos();
+  const items = Object.fromEntries((fut.data?.items || []).map((x) => [x.code, x]));
+  const codes = Object.keys(pos);
+  $("futPosList").innerHTML = codes.length ? codes.map((code) => {
+    const p = pos[code], it = items[code];
+    if (!it) return "";
+    const tv = p.size === "micro" ? it.micro_tick_value : it.tick_value;
+    const pnl = (it.price - p.entry) / it.tick * tv * p.qty;
+    const risk = p.stop ? (p.entry - p.stop) / it.tick * tv * p.qty : null;
+    const fmtP = (v) => String(v).replace(".", "p");
+    const startCmd = `pos_${code}_${fmtP(p.entry)}_${p.qty}_${p.size}${p.stop ? "_" + fmtP(p.stop) : ""}`.slice(0, 64);
+    const hitStop = p.stop && it.price <= p.stop;
+    return `<div class="fut-pos-row">
+      <span>${it.icon} <b>${code === "NQ" ? (p.size === "micro" ? "MNQ" : "NQ") : code === "GC" ? (p.size === "micro" ? "MGC" : "GC") : (p.size === "micro" ? "MCL" : "CL")}</b> ${p.qty}계약 @ ${Number(p.entry).toLocaleString()}</span>
+      <span>현재 ${Number(it.price).toLocaleString()} → <b class="${pnl >= 0 ? "pos" : "neg"}">${pnl >= 0 ? "+" : ""}$${Math.round(pnl).toLocaleString()}</b></span>
+      <span>${p.stop ? `내 손절 ${Number(p.stop).toLocaleString()} (위험 $${Math.round(risk).toLocaleString()})${hitStop ? " ⛔ 도달" : ""}` : "내 손절 없음"}</span>
+      <span>규칙 상태: ${escHtml(it.state.status === "없음" ? "관망" : it.state.status)}</span>
+      <a class="btn btn-secondary btn-sm" href="${futTgLink(startCmd)}" target="_blank" rel="noopener">📨 알림에 등록</a>
+      <a class="btn btn-secondary btn-sm" href="${futTgLink(`pos_${code}_close`)}" target="_blank" rel="noopener" data-del="${code}">🗑 삭제</a>
+    </div>`;
+  }).join("") : `<div class="muted">등록된 포지션이 없습니다.</div>`;
+  $("futPosList").querySelectorAll("[data-del]").forEach((a) => a.addEventListener("click", () => {
+    const p2 = futLoadPos(); delete p2[a.dataset.del]; futSavePos(p2); setTimeout(renderFutPositions, 50);
+  }));
+}
+
 async function renderFutDetail() {
   const it = (fut.data.items || []).find((x) => x.code === fut.sel) || (fut.data.items || [])[0];
   if (!it) return;
@@ -2811,15 +2929,18 @@ function drawFutChart(cd) {
   });
   const cs = fut.chart.addCandlestickSeries({ upColor: "#26a69a", downColor: "#ef5350", borderUpColor: "#26a69a", borderDownColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350" });
   cs.setData(cd.candles || []);
-  const line = (data, color, w = 2) => {
-    const s = fut.chart.addLineSeries({ color, lineWidth: w, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  const line = (data, color, w = 2, dashed = false) => {
+    const s = fut.chart.addLineSeries({ color, lineWidth: w, lineStyle: dashed ? 2 : 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     s.setData(data || []);
   };
   line(cd.ma20, "#2962ff");
   line(cd.ma60, "#ff9800", 1);
   line(cd.ma200, "#00897b");
-  (cd.trendlines || []).forEach((t) => line(t.points, t.color, 2));
+  (cd.trendlines || []).forEach((t) => line(t.points, t.color, t.width || 2, !!t.dashed));
   if ((cd.markers || []).length) cs.setMarkers(cd.markers);
+  attachDrawings(`FUT_${fut.sel}_${fut.iv}`, cd.candles || [], cs, {
+    chart: fut.chart, bar: $("futDrawBar"), container: el, log: false, kind: "futures", redraw: () => drawFutChart(cd),
+  });
   const cds = cd.candles || [];
   fut.lastTime = cds.length ? cds[cds.length - 1].time : 0;
   fut.firstTime = cds.length ? cds[0].time : 0;
@@ -2856,6 +2977,15 @@ function futSetFocus(on) {
 function setupFutures() {
   if (!$("tab-futures")) return;
   $("futFocusBtn").addEventListener("click", () => futSetFocus(!futIsFocus()));
+  ["futCalcCap", "futCalcRisk"].forEach((id) => $(id).addEventListener("input", renderFutCalc));
+  $("futPosAdd").addEventListener("click", () => {
+    const code = $("futPosCode").value, entry = Number($("futPosEntry").value);
+    if (!entry) { alert("진입가를 넣어 주세요"); return; }
+    const p = futLoadPos();
+    p[code] = { entry, qty: Math.max(1, Number($("futPosQty").value) || 1), size: $("futPosSize").value, stop: Number($("futPosStop").value) || null };
+    futSavePos(p);
+    renderFutPositions();
+  });
   $("futSymGroup").addEventListener("click", (e) => {
     const b = e.target.closest(".seg-btn");
     if (!b || !fut.data) return;
