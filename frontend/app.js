@@ -2662,7 +2662,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ==================== 선물 탭 (깃허브 액션이 매시간 futures-data 브랜치에 올린 자료) ====================
-const fut = { data: null, sel: "NQ", iv: "60m", charts: {}, chart: null, timer: null };
+const fut = { data: null, sel: "NQ", iv: "60m", days: 30, charts: {}, chart: null, timer: null, lastTime: 0 };
 
 function futDataBase() {
   let owner = "smartjd824", repo = "trendline-lab";
@@ -2764,6 +2764,7 @@ async function renderFutDetail() {
   if (!it) return;
   fut.sel = it.code;
   $("futChartTitle").textContent = `${it.icon} ${it.name} (${it.symbol}) · ${fut.iv === "60m" ? "1시간봉" : "15분봉"}`;
+  $("futSymGroup").querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x.dataset.code === it.code));
   if (!fut.charts[it.code]) fut.charts[it.code] = await futFetch(`chart_${it.code}.json`);
   drawFutChart(fut.charts[it.code][fut.iv] || fut.charts[it.code]["60m"]);
 
@@ -2782,7 +2783,7 @@ async function renderFutDetail() {
   if ((it.rolls || []).length) rows.push(`<div class="muted">🔁 월물 교체 보정: ${it.rolls.map((r) => `${r.time_kst} ${r.spread > 0 ? "+" : ""}${r.spread}${r.method === "estimate" ? "(추정)" : ""}`).join(", ")}</div>`);
   $("futStateBox").innerHTML = rows.join("");
 
-  const kindTxt = { BUY: "🟢 매수", HALF: "🟡 절반 매도", SELL_ALL: "🟡 전부 매도", SELL_REST: "🔴 나머지 매도", STOP: "⛔ 손절" };
+  const kindTxt = { BUY: "🟢 매수 신호", BUY_NEAR: "🟩 매수 임박", HALF: "🟡 절반 매도", SELL_ALL: "🟡 전부 매도", SELL_NEAR: "🟧 매도 임박", SELL_REST: "🔴 나머지 매도", REST_NEAR: "🟥 나머지 매도 임박", STOP: "⛔ 손절" };
   $("futEvents").innerHTML = (it.recent_events || [])
     .map((e) => `<tr><td>${e.bar_kst}</td><td>${kindTxt[e.kind] || e.kind}</td><td class="num">${Number(e.price).toLocaleString()}</td><td class="muted">${escHtml(e.text)}</td></tr>`)
     .join("") || `<tr><td class="muted">최근 신호 없음</td></tr>`;
@@ -2819,11 +2820,66 @@ function drawFutChart(cd) {
   line(cd.ma200, "#00897b");
   (cd.trendlines || []).forEach((t) => line(t.points, t.color, 2));
   if ((cd.markers || []).length) cs.setMarkers(cd.markers);
-  fut.chart.timeScale().fitContent();
+  const cds = cd.candles || [];
+  fut.lastTime = cds.length ? cds[cds.length - 1].time : 0;
+  fut.firstTime = cds.length ? cds[0].time : 0;
+  futApplyRange();
+  // 차트 크기가 정해진 뒤 한 번 더 (처음 그릴 때 크기가 0이면 기간 설정이 무시됨)
+  setTimeout(futApplyRange, 120);
+  setTimeout(futApplyRange, 600);
+}
+
+// 보이는 기간: 1주 / 1달 / 전체
+function futApplyRange() {
+  if (!fut.chart || !fut.lastTime) return;
+  const ts = fut.chart.timeScale();
+  if (!fut.days) { ts.fitContent(); return; }
+  const from = Math.max(fut.firstTime, fut.lastTime - fut.days * 86400);
+  try {
+    ts.setVisibleRange({ from, to: fut.lastTime });
+  } catch {
+    ts.fitContent();
+  }
+}
+
+// 크게 보기
+function futIsFocus() {
+  return $("futChartCard")?.classList.contains("focus");
+}
+function futSetFocus(on) {
+  $("futChartCard").classList.toggle("focus", on);
+  document.body.classList.toggle("chart-focus-mode", on);
+  $("futFocusBtn").textContent = on ? "✕ 닫기" : "⛶ 크게 보기";
+  setTimeout(futApplyRange, 80);
 }
 
 function setupFutures() {
   if (!$("tab-futures")) return;
+  $("futFocusBtn").addEventListener("click", () => futSetFocus(!futIsFocus()));
+  $("futSymGroup").addEventListener("click", (e) => {
+    const b = e.target.closest(".seg-btn");
+    if (!b || !fut.data) return;
+    fut.sel = b.dataset.code;
+    renderFutCards();
+    renderFutDetail();
+  });
+  $("futRangeGroup").addEventListener("click", (e) => {
+    const b = e.target.closest(".seg-btn");
+    if (!b) return;
+    $("futRangeGroup").querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+    fut.days = Number(b.dataset.days);
+    futApplyRange();
+  });
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea") return;
+    if (!$("tab-futures").classList.contains("active")) return;
+    if (e.key === "Escape" && futIsFocus()) { futSetFocus(false); return; }
+    if ((e.key === "f" || e.key === "F" || e.key === "ㄹ") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      futSetFocus(!futIsFocus());
+    }
+  });
   $("futReloadBtn").addEventListener("click", () => loadFutures(true));
   $("futAutoRefresh").addEventListener("change", futSetupTimer);
   $("futIntervalGroup").addEventListener("click", (e) => {

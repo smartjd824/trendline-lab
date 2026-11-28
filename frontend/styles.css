@@ -1424,3 +1424,12 @@ body.chart-focus-mode { overflow: hidden; }
 .tab-btn { white-space: nowrap; padding: 6px 9px; font-size: 12.5px; }
 .tabs { gap: 2px; overflow-x: auto; max-width: 100%; scrollbar-width: none; flex-shrink: 1; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
+
+/* 선물 차트 조작 · 크게 보기 */
+.fut-chart-head { flex-wrap: wrap; gap: 8px; }
+.fut-chart-ctrls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fut-chart-card.focus {
+  position: fixed; inset: 0; z-index: 2000; margin: 0; border-radius: 0;
+  display: flex; flex-direction: column; background: var(--bg); padding: 10px 12px;
+}
+.fut-chart-card.focus .fut-chart { flex: 1; height: auto; min-height: 0; }

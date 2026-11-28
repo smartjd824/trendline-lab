@@ -246,6 +246,13 @@ def run_rules(df: pd.DataFrame, spec: dict) -> dict[str, Any]:
     s20p = np.r_[np.nan, s20[:-1]]
     ok = np.isfinite(ma200) & np.isfinite(s20) & np.isfinite(s20p) & np.isfinite(rsi) & np.isfinite(m200)
     buy = ok & (s20p <= 0) & (s20 > 0) & (c > ma200) & (m200 >= 0) & (rsi >= 50)
+    cp = np.r_[np.nan, c[:-1]]
+    NEAR = 0.05
+    # 임박 조건 (보유 상태에 따라 하나만 사용)
+    near_buy = ok & (c > ma200) & (m200 >= 0) & (s20 < 0) & (s20 > -NEAR) & (s20 > s20p) & (rsi >= 45)
+    near_sell = ok & (s20 > 0) & (s20 < NEAR) & (s20 < s20p)
+    near_rest = ok & (c > ma200) & ((c - ma200) < 0.5 * atr) & (c < cp)
+    was_near = {"BUY_NEAR": False, "SELL_NEAR": False, "REST_NEAR": False}
     half = spec["exit_mode"] == "half"
     tick, tv, mtv = spec["tick"], spec["tick_value"], spec["micro_tick_value"]
     n = len(c)
@@ -274,12 +281,17 @@ def run_rules(df: pd.DataFrame, spec: dict) -> dict[str, Any]:
                 risk = max((atr[sig_i] if np.isfinite(atr[sig_i]) else o[i] * 0.01) * 1.5, tick * 5)
                 units = [dict(name="A", open=True), dict(name="B", open=True)] if half else [dict(name="A", open=True)]
                 pos = dict(units=units, entry=o[i], stop=o[i] - risk, risk=risk, ei=i, entry_ts=int(ts[i]), exits={})
+                was_near.update(SELL_NEAR=False, REST_NEAR=False)
             elif buy[i]:
                 pending_buy = i
                 ev(i, "BUY", "20일선 기울기 상승 전환 (200일선 위·상승, RSI ≥ 50) → 다음 봉 시가 매수", c[i])
+                was_near.update(BUY_NEAR=False)
                 i += 1
                 continue
             else:
+                if near_buy[i] and not was_near["BUY_NEAR"]:
+                    ev(i, "BUY_NEAR", f"20일선 기울기({s20[i]:+.3f})가 0 바로 아래에서 올라오는 중 → 0을 넘으면 매수 신호", c[i])
+                was_near["BUY_NEAR"] = bool(near_buy[i])
                 i += 1
                 continue
         # 보유 중
@@ -312,7 +324,18 @@ def run_rules(df: pd.DataFrame, spec: dict) -> dict[str, Any]:
                 ev(i, "SELL_REST", "종가가 200일선 아래 → 다음 봉 시가 나머지 매도", c[i])
             if want:
                 p["pending_exit"] = want
+            else:
+                # 매도 임박
+                if uA["open"]:
+                    if near_sell[i] and not was_near["SELL_NEAR"]:
+                        ev(i, "SELL_NEAR", f"20일선 기울기({s20[i]:+.3f})가 0 바로 위에서 내려가는 중 → 0 아래로 꺾이면 " + ("절반 매도" if half else "전부 매도"), c[i])
+                    was_near["SELL_NEAR"] = bool(near_sell[i])
+                elif half and p["units"][1]["open"]:
+                    if near_rest[i] and not was_near["REST_NEAR"]:
+                        ev(i, "REST_NEAR", f"가격이 200일선({ma200[i]:.{spec['decimals']}f}) 바로 위까지 내려옴 → 종가가 아래로 마감하면 나머지 매도", c[i])
+                    was_near["REST_NEAR"] = bool(near_rest[i])
         if not any(u["open"] for u in p["units"]):
+            was_near.update(SELL_NEAR=False, REST_NEAR=False, BUY_NEAR=False)
             trades.append(dict(entry_ts=p["entry_ts"], entry=p["entry"],
                                r=float(np.mean([u["r"] for u in p["units"]])),
                                micro=float(np.mean([u["micro"] for u in p["units"]])) * (2 if half else 1),
@@ -403,7 +426,7 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
     adj60, applied = apply_rolls(raw60, rolls)
     df60 = indicators(adj60, 3600)
     res = run_rules(df60, spec)
-    raw15 = yahoo_history(sym, "30d", "15m")
+    raw15 = yahoo_history(sym, "60d", "15m")
     adj15, _ = apply_rolls(raw15, rolls) if not raw15.empty else (raw15, [])
     df15 = indicators(adj15, 900) if not adj15.empty else pd.DataFrame()
 
@@ -426,7 +449,7 @@ def analyze_symbol(spec: dict, store: Path, prev_rolls: list[dict]) -> tuple[dic
         rolls=[dict(time_kst=pd.to_datetime(e["ts_utc"] + KST_OFFSET, unit="s").strftime("%Y-%m-%d %H:%M"),
                     spread=round(e["spread"], spec["decimals"]), method=e["method"]) for e in applied][-6:],
     )
-    charts = {"60m": chart_payload(df60, res["events"], 600, spec["decimals"])}
+    charts = {"60m": chart_payload(df60, res["events"], 1100, spec["decimals"])}   # 약 7주
     if not df15.empty:
-        charts["15m"] = chart_payload(df15, [], 480, spec["decimals"])
+        charts["15m"] = chart_payload(df15, [], 2400, spec["decimals"])   # 약 1달
     return summary, charts, rolls, res["events"]

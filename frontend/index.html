@@ -744,7 +744,7 @@
         <div class="fut-head-row">
           <div class="fut-night">
             <div><b>야간 알림 제한</b> <span id="futNightLabel" class="fut-night-label">-</span></div>
-            <div class="muted">한국 시간 00~07시에는 알림을 보내지 않고 아침 7시에 모아서 보냅니다. 버튼을 누르면 텔레그램이 열리고, <b>시작(Start)</b>을 누르면 다음 정시 실행(최대 1시간 안)에 적용됩니다.</div>
+            <div class="muted">알림은 <b>매수 임박 · 매수 신호 · 매도 임박 · 매도 신호(손절 포함)</b> 때만 옵니다 (3종목 합쳐 하루 1~2건). 한국 시간 00~07시 알림은 아침 7시에 모아서 보냅니다. 버튼을 누르면 텔레그램이 열리고, <b>시작(Start)</b>을 누르면 다음 정시 실행(최대 1시간 안)에 적용됩니다.</div>
             <div class="fut-night-btns">
               <a id="futNightTonight" class="btn btn-primary btn-sm" target="_blank" rel="noopener">🌙 오늘 밤만 해제</a>
               <a id="futNightOn" class="btn btn-secondary btn-sm" target="_blank" rel="noopener">🔔 계속 해제</a>
@@ -760,12 +760,25 @@
 
       <div id="futCards" class="fut-cards"></div>
 
-      <div class="card">
-        <div class="card-title">
+      <div class="card fut-chart-card" id="futChartCard">
+        <div class="card-title fut-chart-head">
           <span id="futChartTitle">차트</span>
-          <div class="seg-group" id="futIntervalGroup">
-            <button class="seg-btn active" data-iv="60m">1시간봉 (규칙 기준)</button>
-            <button class="seg-btn" data-iv="15m">15분봉 (참고)</button>
+          <div class="fut-chart-ctrls">
+            <div class="seg-group" id="futSymGroup">
+              <button class="seg-btn active" data-code="NQ">📈 나스닥</button>
+              <button class="seg-btn" data-code="GC">🥇 금</button>
+              <button class="seg-btn" data-code="CL">🛢️ 크루드</button>
+            </div>
+            <div class="seg-group" id="futIntervalGroup">
+              <button class="seg-btn active" data-iv="60m">1시간봉 (규칙 기준)</button>
+              <button class="seg-btn" data-iv="15m">15분봉 (참고)</button>
+            </div>
+            <div class="seg-group" id="futRangeGroup">
+              <button class="seg-btn" data-days="7">1주</button>
+              <button class="seg-btn active" data-days="30">1달</button>
+              <button class="seg-btn" data-days="0">전체</button>
+            </div>
+            <button id="futFocusBtn" class="btn btn-primary btn-sm" title="차트 크게 보기 (F) · 닫기 (Esc)">⛶ 크게 보기</button>
           </div>
         </div>
         <div class="fut-legend muted">

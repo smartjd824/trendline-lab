@@ -5,7 +5,7 @@
     /start night_on      : 야간 제한 해제 (계속)
     /start night_tonight : 오늘 밤만 해제 (다음 07시까지)
     /start night_off     : 야간 제한 다시 켜기
-- 매일 07시 이후 첫 실행에 선물 현황 요약 1번
+- 알림은 매수 임박·매수 신호·매도 임박·매도 신호(손절 포함) 때만 (매일 요약 없음, 수동 실행 시 --force-summary 로만)
 - 결과 파일: <out>/latest.json, <out>/chart_<종목>.json, <out>/state.json, <out>/store/ (시세·월물 보관)
 
 실행: python futures_alert.py --out futures_out/futures [--dry-run] [--force-summary]
@@ -29,7 +29,8 @@ from futures_engine.engine import FUTURES, analyze_symbol
 KST = timezone(timedelta(hours=9))
 QUIET_START, QUIET_END = 0, 7
 SITE_URL = os.environ.get("SITE_URL", "https://smartjd824.github.io/trendline-lab/")
-KIND_ICON = {"BUY": "🟢 매수", "HALF": "🟡 절반 매도", "SELL_ALL": "🟡 전부 매도", "SELL_REST": "🔴 나머지 매도", "STOP": "⛔ 손절"}
+KIND_ICON = {"BUY": "🟢 매수 신호", "BUY_NEAR": "🟩 매수 임박", "HALF": "🟡 절반 매도 신호", "SELL_ALL": "🟡 전부 매도 신호",
+             "SELL_NEAR": "🟧 매도 임박", "SELL_REST": "🔴 나머지 매도 신호", "REST_NEAR": "🟥 나머지 매도 임박", "STOP": "⛔ 손절 (매도)"}
 
 
 def tg(method: str, token: str, **params):
@@ -156,10 +157,11 @@ def main() -> int:
     if new_events:
         lines = [fmt_event(s, e) for s, e in new_events]
         if night["allowed"]:
-            msgs.append("⚡ <b>선물 신호 (1시간봉)</b>\n\n" + "\n\n".join(lines))
+            msgs.append("⚡ <b>선물 알림 (1시간봉)</b>\n\n" + "\n\n".join(lines))
         else:
             pending.extend(lines)
-    morning_due = (not night["quiet_hour"]) and state.get("last_morning") != now.strftime("%Y-%m-%d")
+    # 매일 현황 요약은 보내지 않음 (신호·임박 때만 알림). 수동 실행에서 요청할 때만 보냄
+    morning_due = False
     if pending and night["allowed"]:
         msgs.append("🌙 <b>밤사이 선물 신호</b> (00~07시)\n\n" + "\n\n".join(pending))
         state["pending"] = []
