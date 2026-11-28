@@ -1,0 +1,52 @@
+{
+ "last_event_ts": {
+  "NQ=F": 1791550800,
+  "GC=F": 1794232800,
+  "CL=F": 1793574000
+ },
+ "rolls": {
+  "NQ=F": [],
+  "GC=F": [
+   {
+    "ts_utc": 1795593600,
+    "spread": 28.39990234375,
+    "method": "exact",
+    "src": "GCZ26.CMX→GCG27.CMX"
+   }
+  ],
+  "CL=F": [
+   {
+    "ts_utc": 1794988800,
+    "spread": -1.1400070190429688,
+    "method": "exact",
+    "src": "CLZ26.NYM→CLF27.NYM"
+   }
+  ]
+ },
+ "pending": [],
+ "last_morning": "2026-11-28",
+ "live_since": 1795841220,
+ "calendar": {
+  "events": [
+   {
+    "ts": 1795613400,
+    "title": "Core PCE Price Index m/m",
+    "ko": "근원 PCE 물가 m/m",
+    "impact": "High"
+   },
+   {
+    "ts": 1795613400,
+    "title": "Prelim GDP q/q",
+    "ko": "GDP 성장률 Prelim  q/q",
+    "impact": "High"
+   },
+   {
+    "ts": 1795620600,
+    "title": "Crude Oil Inventories",
+    "ko": "원유 재고(EIA)",
+    "impact": "Low"
+   }
+  ],
+  "fetched": 1795843407.091561
+ }
+}
